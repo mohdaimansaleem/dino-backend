@@ -28,7 +28,6 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
@@ -54,9 +53,9 @@ ENV/
 ehthumbs.db
 Thumbs.db
 
-# Deployment
+# Deployment scripts (not needed in container)
 deploy.sh
-cloudbuild.yaml
+build.sh
 
 # Local development
 uploads/
@@ -66,4 +65,9 @@ temp/
 # Testing
 tests/
 *_test.py
-!test_startup.py
+test_*.py
+
+# Development files
+.env
+.env.local
+.env.development

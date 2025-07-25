@@ -4,7 +4,7 @@ Includes all endpoint routers
 """
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, cafes, menu, tables, orders, analytics, users, transactions, notifications, uploads, test
+from app.api.v1.endpoints import auth, cafes, menu, tables, orders, analytics, users, transactions, notifications, uploads
 
 api_router = APIRouter()
 
@@ -19,7 +19,8 @@ api_router.include_router(transactions.router, prefix="/transactions", tags=["tr
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(uploads.router, prefix="/uploads", tags=["uploads"])
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
-api_router.include_router(test.router, prefix="/test", tags=["testing"])
+# Test endpoints removed for production
+# api_router.include_router(test.router, prefix="/test", tags=["testing"])
 
 @api_router.get("/health")
 async def health_check():
