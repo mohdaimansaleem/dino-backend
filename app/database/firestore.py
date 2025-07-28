@@ -41,11 +41,39 @@ class FirestoreRepository(LoggerMixin):
         if not self.collection:
             raise RuntimeError(f"Firestore collection '{self.collection_name}' not available")
     
+    def _prepare_data_for_firestore(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare data for Firestore by converting incompatible types"""
+        from datetime import date, datetime
+        
+        prepared_data = {}
+        for key, value in data.items():
+            if isinstance(value, date) and not isinstance(value, datetime):
+                # Convert date to datetime at midnight
+                prepared_data[key] = datetime.combine(value, datetime.min.time())
+            elif isinstance(value, dict):
+                # Recursively handle nested dictionaries
+                prepared_data[key] = self._prepare_data_for_firestore(value)
+            elif isinstance(value, list):
+                # Handle lists that might contain date objects
+                prepared_data[key] = [
+                    datetime.combine(item, datetime.min.time()) if isinstance(item, date) and not isinstance(item, datetime)
+                    else self._prepare_data_for_firestore(item) if isinstance(item, dict)
+                    else item
+                    for item in value
+                ]
+            else:
+                prepared_data[key] = value
+        
+        return prepared_data
+    
     async def create(self, data: Dict[str, Any], doc_id: Optional[str] = None) -> str:
         """Create a new document"""
         self._ensure_collection()
         
         try:
+            # Convert date objects to datetime for Firestore compatibility
+            data = self._prepare_data_for_firestore(data)
+            
             # Add timestamps
             data['created_at'] = datetime.utcnow()
             data['updated_at'] = datetime.utcnow()
@@ -100,6 +128,9 @@ class FirestoreRepository(LoggerMixin):
         self._ensure_collection()
         
         try:
+            # Convert date objects to datetime for Firestore compatibility
+            data = self._prepare_data_for_firestore(data)
+            
             # Add update timestamp
             data['updated_at'] = datetime.utcnow()
             
@@ -220,6 +251,49 @@ class FirestoreRepository(LoggerMixin):
 
 
 # Repository classes for each collection
+class WorkspaceRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("workspaces")
+    
+    async def get_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get workspace by name"""
+        results = await self.query([("name", "==", name)])
+        return results[0] if results else None
+    
+    async def get_by_owner(self, owner_id: str) -> Optional[Dict[str, Any]]:
+        """Get workspace by owner ID"""
+        results = await self.query([("owner_id", "==", owner_id)])
+        return results[0] if results else None
+
+
+class RoleRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("roles")
+    
+    async def get_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get role by name"""
+        results = await self.query([("name", "==", name)])
+        return results[0] if results else None
+    
+    async def get_system_roles(self) -> List[Dict[str, Any]]:
+        """Get all system roles"""
+        return await self.query([("is_system_role", "==", True)])
+
+
+class PermissionRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("permissions")
+    
+    async def get_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Get permission by name"""
+        results = await self.query([("name", "==", name)])
+        return results[0] if results else None
+    
+    async def get_system_permissions(self) -> List[Dict[str, Any]]:
+        """Get all system permissions"""
+        return await self.query([("is_system_permission", "==", True)])
+
+
 class UserRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("users")
@@ -233,33 +307,57 @@ class UserRepository(FirestoreRepository):
         """Get user by phone number"""
         results = await self.query([("phone", "==", phone)])
         return results[0] if results else None
+    
+    async def get_by_workspace(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """Get users by workspace ID"""
+        return await self.query([("workspace_id", "==", workspace_id)])
+    
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get users by venue ID"""
+        return await self.query([("venue_id", "==", venue_id)])
+    
+    async def get_by_role(self, role_id: str) -> List[Dict[str, Any]]:
+        """Get users by role ID"""
+        return await self.query([("role_id", "==", role_id)])
 
 
-class CafeRepository(FirestoreRepository):
+class VenueRepository(FirestoreRepository):
     def __init__(self):
-        super().__init__("cafes")
+        super().__init__("venues")
+    
+    async def get_by_workspace(self, workspace_id: str) -> List[Dict[str, Any]]:
+        """Get cafes by workspace ID"""
+        return await self.query([("workspace_id", "==", workspace_id)])
+    
+    async def get_by_admin(self, admin_id: str) -> List[Dict[str, Any]]:
+        """Get cafes by admin ID"""
+        return await self.query([("admin_id", "==", admin_id)])
     
     async def get_by_owner(self, owner_id: str) -> List[Dict[str, Any]]:
         """Get cafes by owner ID"""
         return await self.query([("owner_id", "==", owner_id)])
     
-    async def get_active_cafes(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Get all active cafes"""
+    async def get_active_venues(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all active venues"""
         return await self.query([("is_active", "==", True)], limit=limit)
+    
+    async def get_by_subscription_status(self, status: str) -> List[Dict[str, Any]]:
+        """Get venues by subscription status"""
+        return await self.query([("subscription_status", "==", status)])
 
 
 class MenuItemRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("menu_items")
     
-    async def get_by_cafe(self, cafe_id: str) -> List[Dict[str, Any]]:
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get menu items by cafe ID"""
-        return await self.query([("cafe_id", "==", cafe_id)], order_by="order")
+        return await self.query([("venue_id", "==", venue_id)], order_by="order")
     
-    async def get_by_category(self, cafe_id: str, category: str) -> List[Dict[str, Any]]:
+    async def get_by_category(self, venue_id: str, category: str) -> List[Dict[str, Any]]:
         """Get menu items by cafe and category"""
         return await self.query([
-            ("cafe_id", "==", cafe_id),
+            ("venue_id", "==", venue_id),
             ("category", "==", category)
         ], order_by="order")
 
@@ -268,40 +366,52 @@ class MenuCategoryRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("menu_categories")
     
-    async def get_by_cafe(self, cafe_id: str) -> List[Dict[str, Any]]:
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get menu categories by cafe ID"""
-        return await self.query([("cafe_id", "==", cafe_id)], order_by="order")
+        return await self.query([("venue_id", "==", venue_id)], order_by="order")
 
 
 class TableRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("tables")
     
-    async def get_by_cafe(self, cafe_id: str) -> List[Dict[str, Any]]:
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get tables by cafe ID"""
-        return await self.query([("cafe_id", "==", cafe_id)], order_by="table_number")
+        return await self.query([("venue_id", "==", venue_id)], order_by="table_number")
     
-    async def get_by_table_number(self, cafe_id: str, table_number: int) -> Optional[Dict[str, Any]]:
+    async def get_by_table_number(self, venue_id: str, table_number: int) -> Optional[Dict[str, Any]]:
         """Get table by cafe and table number"""
         results = await self.query([
-            ("cafe_id", "==", cafe_id),
+            ("venue_id", "==", venue_id),
             ("table_number", "==", table_number)
         ])
         return results[0] if results else None
+    
+    async def get_by_qr_code(self, qr_code: str) -> Optional[Dict[str, Any]]:
+        """Get table by QR code"""
+        results = await self.query([("qr_code", "==", qr_code)])
+        return results[0] if results else None
+    
+    async def get_by_status(self, venue_id: str, status: str) -> List[Dict[str, Any]]:
+        """Get tables by status"""
+        return await self.query([
+            ("venue_id", "==", venue_id),
+            ("table_status", "==", status)
+        ])
 
 
 class OrderRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("orders")
     
-    async def get_by_cafe(self, cafe_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_by_cafe(self, venue_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get orders by cafe ID"""
-        return await self.query([("cafe_id", "==", cafe_id)], order_by="created_at", limit=limit)
+        return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
     
-    async def get_by_status(self, cafe_id: str, status: str) -> List[Dict[str, Any]]:
+    async def get_by_status(self, venue_id: str, status: str) -> List[Dict[str, Any]]:
         """Get orders by cafe and status"""
         return await self.query([
-            ("cafe_id", "==", cafe_id),
+            ("venue_id", "==", venue_id),
             ("status", "==", status)
         ], order_by="created_at")
 
@@ -310,24 +420,119 @@ class AnalyticsRepository(FirestoreRepository):
     def __init__(self):
         super().__init__("analytics")
     
-    async def get_by_cafe_and_date_range(self, cafe_id: str, start_date: datetime, 
+    async def get_by_cafe_and_date_range(self, venue_id: str, start_date: datetime, 
                                        end_date: datetime) -> List[Dict[str, Any]]:
         """Get analytics by cafe and date range"""
         return await self.query([
-            ("cafe_id", "==", cafe_id),
+            ("venue_id", "==", venue_id),
             ("date", ">=", start_date),
             ("date", "<=", end_date)
         ], order_by="date")
 
 
+class CustomerRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("customers")
+    
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get customers by cafe ID"""
+        return await self.query([("venue_id", "==", venue_id)])
+    
+    async def get_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
+        """Get customer by phone"""
+        results = await self.query([("phone", "==", phone)])
+        return results[0] if results else None
+    
+    async def get_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get customer by email"""
+        results = await self.query([("email", "==", email)])
+        return results[0] if results else None
+
+
+class ReviewRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("reviews")
+    
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get reviews by cafe ID"""
+        return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+    
+    async def get_by_customer(self, customer_id: str) -> List[Dict[str, Any]]:
+        """Get reviews by customer ID"""
+        return await self.query([("customer_id", "==", customer_id)])
+    
+    async def get_by_order(self, order_id: str) -> Optional[Dict[str, Any]]:
+        """Get review by order ID"""
+        results = await self.query([("order_id", "==", order_id)])
+        return results[0] if results else None
+
+
+class NotificationRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("notifications")
+    
+    async def get_by_recipient(self, recipient_id: str) -> List[Dict[str, Any]]:
+        """Get notifications by recipient ID"""
+        return await self.query([("recipient_id", "==", recipient_id)], order_by="created_at")
+    
+    async def get_unread(self, recipient_id: str) -> List[Dict[str, Any]]:
+        """Get unread notifications"""
+        return await self.query([
+            ("recipient_id", "==", recipient_id),
+            ("is_read", "==", False)
+        ])
+
+
+class TransactionRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("transactions")
+    
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get transactions by cafe ID"""
+        return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+    
+    async def get_by_order(self, order_id: str) -> List[Dict[str, Any]]:
+        """Get transactions by order ID"""
+        return await self.query([("order_id", "==", order_id)])
+    
+    async def get_by_status(self, venue_id: str, status: str) -> List[Dict[str, Any]]:
+        """Get transactions by status"""
+        return await self.query([
+            ("venue_id", "==", venue_id),
+            ("status", "==", status)
+        ])
+
+
 # Repository instances
+workspace_repo = WorkspaceRepository()
+role_repo = RoleRepository()
+permission_repo = PermissionRepository()
 user_repo = UserRepository()
-cafe_repo = CafeRepository()
+venue_repo = VenueRepository()
 menu_item_repo = MenuItemRepository()
 menu_category_repo = MenuCategoryRepository()
 table_repo = TableRepository()
 order_repo = OrderRepository()
+customer_repo = CustomerRepository()
+review_repo = ReviewRepository()
+notification_repo = NotificationRepository()
+transaction_repo = TransactionRepository()
 analytics_repo = AnalyticsRepository()
+
+
+def get_workspace_repo() -> WorkspaceRepository:
+    """Get workspace repository instance"""
+    return workspace_repo
+
+
+def get_role_repo() -> RoleRepository:
+    """Get role repository instance"""
+    return role_repo
+
+
+def get_permission_repo() -> PermissionRepository:
+    """Get permission repository instance"""
+    return permission_repo
 
 
 def get_user_repo() -> UserRepository:
@@ -335,9 +540,9 @@ def get_user_repo() -> UserRepository:
     return user_repo
 
 
-def get_cafe_repo() -> CafeRepository:
-    """Get cafe repository instance"""
-    return cafe_repo
+def get_venue_repo() -> VenueRepository:
+    """Get venue repository instance"""
+    return venue_repo
 
 
 def get_menu_item_repo() -> MenuItemRepository:
@@ -358,6 +563,26 @@ def get_table_repo() -> TableRepository:
 def get_order_repo() -> OrderRepository:
     """Get order repository instance"""
     return order_repo
+
+
+def get_customer_repo() -> CustomerRepository:
+    """Get customer repository instance"""
+    return customer_repo
+
+
+def get_review_repo() -> ReviewRepository:
+    """Get review repository instance"""
+    return review_repo
+
+
+def get_notification_repo() -> NotificationRepository:
+    """Get notification repository instance"""
+    return notification_repo
+
+
+def get_transaction_repo() -> TransactionRepository:
+    """Get transaction repository instance"""
+    return transaction_repo
 
 
 def get_analytics_repo() -> AnalyticsRepository:

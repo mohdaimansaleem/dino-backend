@@ -19,36 +19,52 @@ class Settings(BaseSettings):
     # =============================================================================
     # ENVIRONMENT & BASIC CONFIG
     # =============================================================================
-    ENVIRONMENT: str = Field(..., description="Environment (development, staging, production)")
+    ENVIRONMENT: str = Field(default="development", description="Environment (development, staging, production)")
     DEBUG: bool = Field(default=False, description="Debug mode")
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
     
     # =============================================================================
     # SECURITY
     # =============================================================================
-    SECRET_KEY: str = Field(..., description="JWT secret key")
+    SECRET_KEY: str = Field(default="your-secret-key-change-in-production-at-least-32-characters-long", description="JWT secret key")
     ALGORITHM: str = Field(default="HS256", description="JWT algorithm")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, description="JWT token expiration")
     REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, description="Refresh token expiration")
+    QR_ENCRYPTION_KEY: str = Field(default="dino-qr-encryption-key-change-in-production-32-chars", description="QR code encryption key")
     
     # =============================================================================
     # CORS CONFIGURATION
     # =============================================================================
     CORS_ORIGINS: Union[List[str], str] = Field(
-        default=["*"], 
+        default=[
+            "http://localhost:3000", 
+            "https://localhost:3000",
+            "http://localhost:3001",
+            "https://localhost:3001",
+            "*"  # Allow all origins for development - remove in production
+        ], 
         description="Allowed CORS origins"
+    )
+    CORS_ALLOW_CREDENTIALS: bool = Field(default=True, description="Allow credentials in CORS")
+    CORS_ALLOW_METHODS: Union[List[str], str] = Field(
+        default=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        description="Allowed CORS methods"
+    )
+    CORS_ALLOW_HEADERS: Union[List[str], str] = Field(
+        default=["*"],
+        description="Allowed CORS headers"
     )
     
     # =============================================================================
     # GOOGLE CLOUD PLATFORM
     # =============================================================================
-    GCP_PROJECT_ID: str = Field(..., description="Google Cloud Project ID")
+    GCP_PROJECT_ID: str = Field(default="your-gcp-project-id", description="Google Cloud Project ID")
     GCP_REGION: str = Field(default="us-central1", description="GCP region")
     
     # =============================================================================
     # FIRESTORE
     # =============================================================================
-    FIRESTORE_DATABASE_ID: str = Field(
+    DATABASE_NAME: str = Field(
         default="(default)", 
         description="Firestore database ID"
     )
@@ -56,7 +72,7 @@ class Settings(BaseSettings):
     # =============================================================================
     # CLOUD STORAGE
     # =============================================================================
-    GCS_BUCKET_NAME: str = Field(..., description="Google Cloud Storage bucket name")
+    GCS_BUCKET_NAME: str = Field(default="your-gcs-bucket-name", description="Google Cloud Storage bucket name")
     GCS_BUCKET_REGION: str = Field(default="us-central1", description="GCS bucket region")
     GCS_IMAGES_FOLDER: str = Field(default="images", description="Images folder in bucket")
     GCS_DOCUMENTS_FOLDER: str = Field(default="documents", description="Documents folder")
@@ -77,7 +93,7 @@ class Settings(BaseSettings):
     # =============================================================================
     # APPLICATION FEATURES
     # =============================================================================
-    QR_CODE_BASE_URL: str = Field(..., description="Base URL for QR codes")
+    QR_CODE_BASE_URL: str = Field(default="http://localhost:8000", description="Base URL for QR codes")
     ENABLE_REAL_TIME_NOTIFICATIONS: bool = Field(default=True, description="Enable notifications")
     WEBSOCKET_PING_INTERVAL: int = Field(default=30, description="WebSocket ping interval")
     DEFAULT_CURRENCY: str = Field(default="INR", description="Default currency")
@@ -107,6 +123,20 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in v.split(",")]
         return v
     
+    @field_validator('CORS_ALLOW_METHODS', mode='before')
+    @classmethod
+    def parse_cors_methods(cls, v):
+        if isinstance(v, str):
+            return [method.strip() for method in v.split(",")]
+        return v
+    
+    @field_validator('CORS_ALLOW_HEADERS', mode='before')
+    @classmethod
+    def parse_cors_headers(cls, v):
+        if isinstance(v, str):
+            return [header.strip() for header in v.split(",")]
+        return v
+    
     @field_validator('ALLOWED_IMAGE_TYPES', mode='before')
     @classmethod
     def parse_allowed_image_types(cls, v):
@@ -131,8 +161,37 @@ class Settings(BaseSettings):
     
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
         extra = "ignore"
+        
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Log configuration source for debugging
+        if self.DEBUG:
+            logger.info(f"Configuration loaded - Environment: {self.ENVIRONMENT}")
+            logger.info(f"Using GCP Project: {self.GCP_PROJECT_ID}")
+            logger.info(f"Using Firestore DB: {self.DATABASE_NAME}")
+            logger.info(f"Using GCS Bucket: {self.GCS_BUCKET_NAME}")
+            logger.info(f"QR Code Base URL: {self.QR_CODE_BASE_URL}")
+            logger.info(f"Debug Mode: {self.DEBUG}")
+            logger.info(f"Log Level: {self.LOG_LEVEL}")
+    
+    def get_env_info(self) -> dict:
+        """Get environment configuration info for debugging"""
+        return {
+            "environment": self.ENVIRONMENT,
+            "debug": self.DEBUG,
+            "log_level": self.LOG_LEVEL,
+            "gcp_project_id": self.GCP_PROJECT_ID,
+            "firestore_db": self.DATABASE_NAME,
+            "gcs_bucket": self.GCS_BUCKET_NAME,
+            "qr_base_url": self.QR_CODE_BASE_URL,
+            "cors_origins": self.CORS_ORIGINS,
+            "is_development": self.is_development,
+            "is_production": self.is_production,
+            "is_staging": self.is_staging
+        }
 
 
 class CloudServiceManager:
@@ -162,7 +221,7 @@ class CloudServiceManager:
             try:
                 self._firestore_client = firestore.Client(
                     project=self.settings.GCP_PROJECT_ID,
-                    database=self.settings.FIRESTORE_DATABASE_ID
+                    database=self.settings.DATABASE_NAME
                 )
                 self.logger.info("Firestore client initialized successfully")
             except Exception as e:
@@ -254,6 +313,58 @@ def get_firestore_client() -> firestore.Client:
 def get_storage_bucket() -> storage.Bucket:
     """Get the main storage bucket"""
     return cloud_manager.get_storage_bucket()
+
+
+def validate_configuration() -> dict:
+    """Validate current configuration and return status"""
+    validation_result = {
+        "valid": True,
+        "warnings": [],
+        "errors": [],
+        "config_info": {}
+    }
+    
+    try:
+        # Get current settings
+        current_settings = get_settings()
+        validation_result["config_info"] = current_settings.get_env_info()
+        
+        # Check critical settings
+        if current_settings.SECRET_KEY == "your-secret-key-change-in-production-at-least-32-characters-long":
+            validation_result["warnings"].append("Using default SECRET_KEY - change this in production!")
+        
+        if current_settings.GCP_PROJECT_ID == "your-gcp-project-id":
+            validation_result["errors"].append("GCP_PROJECT_ID not configured properly")
+            validation_result["valid"] = False
+        
+        if current_settings.GCS_BUCKET_NAME == "your-gcs-bucket-name":
+            validation_result["warnings"].append("GCS_BUCKET_NAME not configured - storage features may not work")
+        
+        if current_settings.is_production and current_settings.DEBUG:
+            validation_result["warnings"].append("DEBUG is enabled in production environment")
+        
+        if len(current_settings.SECRET_KEY) < 32:
+            validation_result["errors"].append("SECRET_KEY should be at least 32 characters long")
+            validation_result["valid"] = False
+        
+        # Log validation results
+        if validation_result["valid"]:
+            logger.info("Configuration validation passed")
+        else:
+            logger.error("Configuration validation failed")
+        
+        for warning in validation_result["warnings"]:
+            logger.warning(f"Config warning: {warning}")
+        
+        for error in validation_result["errors"]:
+            logger.error(f"Config error: {error}")
+            
+    except Exception as e:
+        logger.error(f"Configuration validation error: {e}")
+        validation_result["valid"] = False
+        validation_result["errors"].append(f"Validation error: {str(e)}")
+    
+    return validation_result
 
 
 def initialize_cloud_services() -> bool:

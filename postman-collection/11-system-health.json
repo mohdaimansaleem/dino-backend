@@ -1,0 +1,41 @@
+{
+	"name": "🔧 System & Health",
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/health",
+					"host": ["{{base_url}}"],
+					"path": ["health"]
+				}
+			}
+		},
+		{
+			"name": "System Status",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/system/status",
+					"host": ["{{base_url}}"],
+					"path": ["system", "status"]
+				}
+			}
+		},
+		{
+			"name": "API Version",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/version",
+					"host": ["{{base_url}}"],
+					"path": ["version"]
+				}
+			}
+		}
+	]
+}

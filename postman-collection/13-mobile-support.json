@@ -1,0 +1,38 @@
+{
+	"name": "📱 Mobile App Support",
+	"item": [
+		{
+			"name": "Get App Configuration",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/mobile/config",
+					"host": ["{{base_url}}"],
+					"path": ["mobile", "config"]
+				}
+			}
+		},
+		{
+			"name": "Register Device Token",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"device_token\": \"sample_fcm_token_here\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.0.0\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/mobile/register-device",
+					"host": ["{{base_url}}"],
+					"path": ["mobile", "register-device"]
+				}
+			}
+		}
+	]
+}

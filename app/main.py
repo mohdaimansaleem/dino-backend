@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
 
-from app.core.config import settings, initialize_cloud_services
+from app.core.config import settings, initialize_cloud_services, validate_configuration
 from app.core.logging_config import setup_logging, get_logger
 from app.api.v1.api import api_router
 
@@ -23,9 +23,21 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Dino E-Menu API", extra={
         "environment": settings.ENVIRONMENT,
         "project_id": settings.GCP_PROJECT_ID,
-        "database_id": settings.FIRESTORE_DATABASE_ID,
+        "database_id": settings.DATABASE_NAME,
         "debug_mode": settings.DEBUG
     })
+    
+    # Validate configuration
+    config_validation = validate_configuration()
+    if not config_validation["valid"]:
+        logger.error("Configuration validation failed")
+        for error in config_validation["errors"]:
+            logger.error(f"Config error: {error}")
+        if settings.is_production:
+            raise RuntimeError("Critical: Configuration validation failed")
+    
+    for warning in config_validation["warnings"]:
+        logger.warning(f"Config warning: {warning}")
     
     # Initialize cloud services
     try:
@@ -65,13 +77,17 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["*"],
+    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_methods=settings.CORS_ALLOW_METHODS,
+    allow_headers=settings.CORS_ALLOW_HEADERS,
 )
 
-# Include API routes
+# Include API routes with enhanced documentation
 app.include_router(api_router, prefix="/api/v1")
+
+# Setup enhanced API documentation
+from app.core.api_docs import setup_api_documentation
+setup_api_documentation(app)
 
 
 # =============================================================================
@@ -101,7 +117,7 @@ async def health_check():
         "version": "1.0.0",
         "environment": settings.ENVIRONMENT,
         "project_id": settings.GCP_PROJECT_ID,
-        "database_id": settings.FIRESTORE_DATABASE_ID
+        "database_id": settings.DATABASE_NAME
     }
     
     # Add detailed health check for non-production environments
@@ -170,7 +186,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         reload=False,  # Disable reload in production
-        log_level=settings.LOG_LEVEL.lower(),
+        log_level=settings.LOG_LEVEL.lower() if hasattr(settings, 'LOG_LEVEL') else "info",
         access_log=True,
         workers=1  # Single worker for Cloud Run
     )

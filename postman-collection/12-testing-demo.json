@@ -1,0 +1,68 @@
+{
+	"name": "🎯 Testing & Demo",
+	"item": [
+		{
+			"name": "Reset Demo Data",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"confirm\": true,\n  \"workspace_id\": \"{{workspace_id}}\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/demo/reset",
+					"host": ["{{base_url}}"],
+					"path": ["demo", "reset"]
+				}
+			}
+		},
+		{
+			"name": "Seed Demo Data",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"workspace_id\": \"{{workspace_id}}\",\n  \"venue_id\": \"{{venue_id}}\",\n  \"include_sample_menu\": true,\n  \"include_sample_tables\": true,\n  \"include_sample_orders\": true\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/demo/seed",
+					"host": ["{{base_url}}"],
+					"path": ["demo", "seed"]
+				}
+			}
+		},
+		{
+			"name": "Generate Test QR Codes",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"venue_id\": \"{{venue_id}}\",\n  \"table_count\": 10\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/demo/generate-qr-codes",
+					"host": ["{{base_url}}"],
+					"path": ["demo", "generate-qr-codes"]
+				}
+			}
+		}
+	]
+}

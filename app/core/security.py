@@ -74,7 +74,6 @@ async def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depend
 async def get_current_user(user_id: str = Depends(get_current_user_id)):
     """Get current user from database"""
     from app.database.firestore import get_user_repo
-    from app.models.schemas import User
     
     user_repo = get_user_repo()
     user_data = await user_repo.get_by_id(user_id)
@@ -86,12 +85,12 @@ async def get_current_user(user_id: str = Depends(get_current_user_id)):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    return User(**user_data)
+    return user_data
 
 
 async def get_current_admin_user(current_user = Depends(get_current_user)):
     """Get current admin user (role-based access control)"""
-    if current_user.role not in ["admin", "cafe_owner"]:
+    if current_user.get("role") not in ["admin", "superadmin"]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
@@ -127,6 +126,33 @@ async def verify_cafe_access(cafe_id: str, current_user: Dict[str, Any]) -> bool
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions to access this cafe"
+        )
+    
+    return True
+
+
+async def verify_workspace_access(workspace_id: str, current_user: Dict[str, Any]) -> bool:
+    """Verify if current user has access to workspace"""
+    from app.database.firestore import get_workspace_repo
+    
+    workspace_repo = get_workspace_repo()
+    workspace = await workspace_repo.get_by_id(workspace_id)
+    
+    if not workspace:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found"
+        )
+    
+    # Admin can access all workspaces
+    if current_user.get("role") == "admin":
+        return True
+    
+    # User can only access their own workspace
+    if current_user.get("workspace_id") != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions to access this workspace"
         )
     
     return True

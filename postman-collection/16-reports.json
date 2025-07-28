@@ -1,0 +1,118 @@
+{
+	"name": "📈 Reports",
+	"item": [
+		{
+			"name": "Daily Sales Report",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/reports/daily-sales?venue_id={{venue_id}}&date=2024-01-15",
+					"host": ["{{base_url}}"],
+					"path": ["reports", "daily-sales"],
+					"query": [
+						{
+							"key": "venue_id",
+							"value": "{{venue_id}}"
+						},
+						{
+							"key": "date",
+							"value": "2024-01-15"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "Monthly Revenue Report",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/reports/monthly-revenue?venue_id={{venue_id}}&month=2024-01",
+					"host": ["{{base_url}}"],
+					"path": ["reports", "monthly-revenue"],
+					"query": [
+						{
+							"key": "venue_id",
+							"value": "{{venue_id}}"
+						},
+						{
+							"key": "month",
+							"value": "2024-01"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "Menu Performance Report",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/reports/menu-performance?venue_id={{venue_id}}&period=30",
+					"host": ["{{base_url}}"],
+					"path": ["reports", "menu-performance"],
+					"query": [
+						{
+							"key": "venue_id",
+							"value": "{{venue_id}}"
+						},
+						{
+							"key": "period",
+							"value": "30"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "Customer Analytics Report",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/reports/customer-analytics?venue_id={{venue_id}}&start_date=2024-01-01&end_date=2024-01-31",
+					"host": ["{{base_url}}"],
+					"path": ["reports", "customer-analytics"],
+					"query": [
+						{
+							"key": "venue_id",
+							"value": "{{venue_id}}"
+						},
+						{
+							"key": "start_date",
+							"value": "2024-01-01"
+						},
+						{
+							"key": "end_date",
+							"value": "2024-01-31"
+						}
+					]
+				}
+			}
+		},
+		{
+			"name": "Export Report to PDF",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"report_type\": \"daily_sales\",\n  \"venue_id\": \"{{venue_id}}\",\n  \"date_range\": {\n    \"start_date\": \"2024-01-01\",\n    \"end_date\": \"2024-01-31\"\n  },\n  \"format\": \"pdf\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/reports/export",
+					"host": ["{{base_url}}"],
+					"path": ["reports", "export"]
+				}
+			}
+		}
+	]
+}
