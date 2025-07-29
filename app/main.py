@@ -73,14 +73,9 @@ app = FastAPI(
     redoc_url="/redoc" if not settings.is_production else None,
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
-    allow_methods=settings.CORS_ALLOW_METHODS,
-    allow_headers=settings.CORS_ALLOW_HEADERS,
-)
+# CORS middleware with production-ready configuration
+from app.core.cors_config import configure_cors
+configure_cors(app)
 
 # Include API routes with enhanced documentation
 app.include_router(api_router, prefix="/api/v1")
