@@ -1,8 +1,0 @@
-ENVIRONMENT: "production"
-GCP_PROJECT_ID: "edl-idaas-fdev-platform-2c85"
-DATABASE_NAME: "jm-dino"
-GCS_BUCKET_NAME: "edl-idaas-fdev-platform-2c85-dino-storage"
-SECRET_KEY: "Y8npVmKu/qrRjgl6hISI8d66FxFPjFYZAiax9WDpXh0="
-QR_CODE_BASE_URL: "https://yourdomain.com/menu"
-CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
-CORS_ALLOW_HEADERS: "authorization,content-type,x-auth-type,x-client-version,x-environment,x-gcp-identity-token,x-gcp-token-audience"
