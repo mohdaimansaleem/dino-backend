@@ -855,27 +855,29 @@ class WorkspaceOnboardingCreate(BaseModel):
 class WorkspaceRegistration(BaseSchema):
     """Workspace registration schema"""
     # Workspace details
-    workspace_display_name: str = Field(..., min_length=1, max_length=100)
-    workspace_description: Optional[str] = Field(None, max_length=500)
-    business_type: BusinessType
+    workspace_name: str = Field(..., min_length=1, max_length=100, alias="workspaceName")
+    workspace_description: Optional[str] = Field(None, max_length=500, alias="workspaceDescription")
     
     # Venue details
-    venue_name: str = Field(..., min_length=1, max_length=100)
-    venue_description: str = Field(..., max_length=1000)
-    venue_location: VenueLocation
-    venue_phone: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
-    venue_email: EmailStr
-    venue_website: Optional[HttpUrl] = None
-    cuisine_types: List[str] = Field(default_factory=list)
-    price_range: PriceRange
+    venue_name: str = Field(..., min_length=1, max_length=100, alias="venueName")
+    venue_description: Optional[str] = Field(None, max_length=1000, alias="venueDescription")
+    venue_location: VenueLocation = Field(..., alias="venueLocation")
+    venue_phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="venuePhone")
+    venue_email: Optional[EmailStr] = Field(None, alias="venueEmail")
+    venue_website: Optional[HttpUrl] = Field(None, alias="venueWebsite")
+    price_range: PriceRange = Field(..., alias="priceRange")
+    venu_type: BusinessType = Field(..., alias="venuType")
     
     # Owner details
-    owner_email: EmailStr
-    owner_phone: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
-    owner_first_name: str = Field(..., min_length=1, max_length=50)
-    owner_last_name: str = Field(..., min_length=1, max_length=50)
-    owner_password: str = Field(..., min_length=8, max_length=128)
-    confirm_password: str = Field(..., min_length=8, max_length=128)
+    owner_email: EmailStr = Field(..., alias="ownerEmail")
+    owner_phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="ownerPhone")
+    owner_first_name: str = Field(..., min_length=1, max_length=50, alias="ownerFirstName")
+    owner_last_name: str = Field(..., min_length=1, max_length=50, alias="ownerLastName")
+    owner_password: str = Field(..., min_length=8, max_length=128, alias="ownerPassword")
+    confirm_password: str = Field(..., min_length=8, max_length=128, alias="confirmPassword")
+    
+    class Config:
+        allow_population_by_field_name = True
     
     @validator('confirm_password')
     def passwords_match(cls, v, values, **kwargs):

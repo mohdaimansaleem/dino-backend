@@ -16,23 +16,211 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
-async def register_user(user_data: UserCreate):
-    """Register a new user"""
+async def register_workspace(registration_data: WorkspaceRegistration):
+    """
+    Complete workspace registration with venue and owner user creation
+    
+    This endpoint creates:
+    1. A new workspace with workspace details
+    2. A new venue under the workspace with venue details  
+    3. A new user (owner) with personal details and superadmin role
+    4. Links all entities together properly
+    """
     try:
-        user = await auth_service.register_user(user_data)
-        return ApiResponse(
-            success=True,
-            message="User registered successfully",
-            data=user
-        )
+        from app.database.firestore import get_workspace_repo, get_venue_repo, get_user_repo
+        from app.core.logging_config import get_logger
+        from app.services.validation_service import get_validation_service
+        from app.core.security import get_password_hash
+        import uuid
+        from datetime import datetime
+        
+        logger = get_logger(__name__)
+        validation_service = get_validation_service()
+        
+        # Get repositories
+        workspace_repo = get_workspace_repo()
+        venue_repo = get_venue_repo()
+        user_repo = get_user_repo()
+        
+        # Get role repository for superadmin role
+        from app.database.firestore import get_role_repo
+        role_repo = get_role_repo()
+        
+        # Validate password confirmation
+        if registration_data.owner_password != registration_data.confirm_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Passwords do not match"
+            )
+        
+        # Check if email already exists
+        existing_user = await user_repo.get_by_email(registration_data.owner_email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="User with this email already exists"
+            )
+        
+        # Generate unique IDs
+        workspace_id = str(uuid.uuid4())
+        venue_id = str(uuid.uuid4())
+        user_id = str(uuid.uuid4())
+        
+        # Generate unique workspace name from display name
+        workspace_name = registration_data.workspace_display_name.lower().replace(" ", "_").replace("-", "_")
+        workspace_name = f"{workspace_name}_{workspace_id[:8]}"
+        
+        current_time = datetime.utcnow()
+        
+        # Get superadmin role_id
+        superadmin_role = await role_repo.get_by_name("superadmin")
+        if not superadmin_role:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Superadmin role not found in system"
+            )
+        
+        # 1. Create Workspace
+        workspace_data = {
+            "id": workspace_id,
+            "name": workspace_name,
+            "description": registration_data.workspace_description,
+            "venue_ids": [venue_id],
+            "is_active": True,
+            "created_at": current_time,
+            "updated_at": current_time
+        }
+        
+        # 2. Create Venue
+        venue_data = {
+            "id": venue_id,
+            "workspace_id": workspace_id,
+            "name": registration_data.venue_name,
+            "description": registration_data.venue_description,
+            "location": registration_data.venue_location.dict(),
+            "phone": registration_data.venue_phone,
+            "email": registration_data.venue_email,
+            "website": str(registration_data.venue_website) if registration_data.venue_website else None,
+            "price_range": registration_data.price_range.value,
+            "subscription_plan": "basic",
+            "is_active": True,
+            "is_verified": False,
+            "created_at": current_time,
+            "updated_at": current_time
+        }
+        
+        # 3. Create User (Owner with superadmin role)
+        hashed_password = get_password_hash(registration_data.owner_password)
+        user_data = {
+            "id": user_id,
+            "email": registration_data.owner_email,
+            "phone": registration_data.owner_phone,
+            "first_name": registration_data.owner_first_name,
+            "last_name": registration_data.owner_last_name,
+            "password_hash": hashed_password,
+            "venue_ids": [venue_id],  
+            "role_id": superadmin_role["id"],
+            "is_active": True,
+            "email_verified": False,
+            "phone_verified": False,
+            "created_at": current_time,
+            "updated_at": current_time,
+            "last_login": None
+        }
+        
+        # Validate all data before creating
+        workspace_errors = await validation_service.validate_workspace_data(workspace_data, is_update=False)
+        venue_errors = await validation_service.validate_venue_data(venue_data, is_update=False)
+        user_errors = await validation_service.validate_user_data(user_data, is_update=False)
+        
+        # Combine all validation errors
+        all_errors = workspace_errors + venue_errors + user_errors
+        if all_errors:
+            validation_service.raise_validation_exception(all_errors)
+        
+        # Create all records in sequence
+        try:
+            # Create workspace first
+            await workspace_repo.create(workspace_data)
+            logger.info(f"Workspace created: {workspace_id}")
+            
+            # Create venue
+            await venue_repo.create(venue_data)
+            logger.info(f"Venue created: {venue_id}")
+            
+            # Create user
+            await user_repo.create(user_data)
+            logger.info(f"User created: {user_id}")
+            
+            # Verify mappings are correctly established
+            await _verify_entity_mappings(workspace_repo, venue_repo, user_repo, 
+                                        workspace_id, venue_id, user_id, logger)
+            
+            # Log successful registration
+            logger.info(f"Complete workspace registration successful", extra={
+                "workspace_id": workspace_id,
+                "venue_id": venue_id,
+                "user_id": user_id,
+                "owner_email": registration_data.owner_email
+            })
+            
+            return ApiResponse(
+                success=True,
+                message="Workspace, venue, and owner account created successfully. You can now login with your credentials.",
+                data={
+                    "workspace": {
+                        "id": workspace_id,
+                        "name": workspace_name,
+                        "display_name": registration_data.workspace_display_name,
+                        "business_type": registration_data.business_type.value
+                    },
+                    "venue": {
+                        "id": venue_id,
+                        "name": registration_data.venue_name,
+                        "location": venue_data["location"]
+                    },
+                    "owner": {
+                        "id": user_id,
+                        "email": registration_data.owner_email,
+                        "first_name": registration_data.owner_first_name,
+                        "last_name": registration_data.owner_last_name,
+                        "role_id": superadmin_role["id"],
+                        "role_name": "superadmin"
+                    },
+                    "next_steps": [
+                        "Login with your email and password",
+                        "Complete venue setup (add menu items, tables)",
+                        "Configure payment methods",
+                        "Generate QR codes for tables"
+                    ]
+                }
+            )
+            
+        except Exception as creation_error:
+            # Rollback on failure
+            logger.error(f"Registration failed during creation: {creation_error}")
+            
+            # Attempt cleanup (best effort)
+            try:
+                await workspace_repo.delete(workspace_id)
+                await venue_repo.delete(venue_id) 
+                await user_repo.delete(user_id)
+            except:
+                pass  # Ignore cleanup errors
+                
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Registration failed during record creation. Please try again."
+            )
+            
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"Workspace registration failed: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}"
+            detail="Workspace registration failed. Please try again."
         )
-
 
 @router.post("/login", response_model=AuthToken)
 async def login_user(login_data: UserLogin):
@@ -64,12 +252,10 @@ async def login_user(login_data: UserLogin):
             detail=f"Login failed: {str(e)}"
         )
 
-
 @router.get("/me", response_model=User)
 async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user information"""
     return User(**current_user)
-
 
 @router.put("/me", response_model=ApiResponse)
 async def update_current_user(
@@ -94,7 +280,6 @@ async def update_current_user(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Update failed: {str(e)}"
         )
-
 
 @router.post("/change-password", response_model=ApiResponse)
 async def change_password(
@@ -141,134 +326,156 @@ async def logout_user():
         message="Logged out successfully. Please remove the token from client storage."
     )
 
-
-@router.delete("/deactivate", response_model=ApiResponse)
-async def deactivate_account(current_user_id: str = Depends(get_current_user_id)):
-    """Deactivate user account"""
+@router.put("/deactivate/{venue_id}", response_model=ApiResponse)
+async def deactivate_venue(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Deactivate venue by venue ID (updates is_active field to False)"""
     try:
-        await auth_service.deactivate_user(current_user_id)
-        return ApiResponse(
-            success=True,
-            message="Account deactivated successfully"
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Account deactivation failed: {str(e)}"
-        )
-
-
-# =============================================================================
-# WORKSPACE REGISTRATION ENDPOINTS (Consolidated from registration.py)
-# =============================================================================
-
-@router.post("/register-workspace", response_model=ApiResponse, status_code=status.HTTP_201_CREATED)
-async def register_workspace(registration_data: WorkspaceRegistration):
-    """Register a new workspace with venue and superadmin user with comprehensive validation"""
-    try:
-        from app.services.workspace_service import workspace_service
-        from app.core.logging_config import LoggerMixin
+        from app.database.firestore import get_venue_repo
+        from app.core.logging_config import get_logger
         
-        # Get validation service
-        validation_service = get_validation_service()
+        logger = get_logger(__name__)
+        venue_repo = get_venue_repo()
         
-        # Convert Pydantic model to dict for validation
-        registration_dict = registration_data.dict()
+        # Check if venue exists
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
         
-        # Validate workspace data
-        workspace_data = {
-            "display_name": registration_dict["workspace_display_name"],
-            "description": registration_dict.get("workspace_description"),
-            "business_type": registration_dict["business_type"]
-        }
-        workspace_errors = await validation_service.validate_workspace_data(workspace_data, is_update=False)
+        # Check permissions - only allow if user is admin/superadmin or venue owner
+        user_role = current_user.get('role')
+        user_workspace_id = current_user.get('workspace_id')
+        venue_workspace_id = venue.get('workspace_id')
+        venue_owner_id = venue.get('owner_id')
+        venue_admin_id = venue.get('admin_id')
         
-        # Validate venue data
-        venue_data = {
-            "name": registration_dict["venue_name"],
-            "description": registration_dict["venue_description"],
-            "location": registration_dict["venue_location"],
-            "phone": registration_dict["venue_phone"],
-            "email": registration_dict["venue_email"],
-            "website": registration_dict.get("venue_website"),
-            "cuisine_types": registration_dict.get("cuisine_types", []),
-            "price_range": registration_dict["price_range"]
-        }
-        venue_errors = await validation_service.validate_venue_data(venue_data, is_update=False)
+        if not (user_role in ['admin', 'superadmin'] or 
+                current_user['id'] in [venue_owner_id, venue_admin_id] or
+                (user_workspace_id == venue_workspace_id and user_role == 'admin')):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to deactivate this venue"
+            )
         
-        # Validate user data
-        user_data = {
-            "email": registration_dict["owner_email"],
-            "phone": registration_dict["owner_phone"],
-            "first_name": registration_dict["owner_first_name"],
-            "last_name": registration_dict["owner_last_name"],
-            "password": registration_dict["owner_password"]
-        }
-        user_errors = await validation_service.validate_user_data(user_data, is_update=False)
+        # Update venue deactivation status (record is preserved, only is_active field is updated)
+        await venue_repo.update(venue_id, {"is_active": False})
         
-        # Combine all validation errors
-        all_errors = workspace_errors + venue_errors + user_errors
-        if all_errors:
-            validation_service.raise_validation_exception(all_errors)
-        
-        class RegistrationHandler(LoggerMixin):
-            pass
-        
-        handler = RegistrationHandler()
-        result = await workspace_service.register_workspace(registration_data)
-        
-        handler.log_operation("workspace_registration", 
-                            workspace_id=result["workspace"]["id"],
-                            user_id=result["user"]["id"],
-                            venue_id=result["venue"]["id"])
+        logger.info(f"Venue deactivated (is_active set to False): {venue_id} by user: {current_user['id']}")
         
         return ApiResponse(
             success=True,
-            message="Workspace registered successfully. You can now login with your credentials.",
+            message="Venue deactivated successfully. Record preserved with is_active set to False.",
             data={
-                "workspace_name": result["workspace"]["name"],
-                "workspace_id": result["workspace"]["id"],
-                "venue_name": result["venue"]["name"],
-                "venue_id": result["venue"]["id"],
-                "owner_email": result["user"]["email"]
+                "venue_id": venue_id, 
+                "venue_name": venue.get('name'),
+                "is_active": False,
+                "action": "deactivated"
             }
         )
-        
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Workspace registration failed"
+            detail=f"Venue deactivation failed: {str(e)}"
         )
 
-
-@router.post("/workspace-login", response_model=AuthToken)
-async def workspace_login(login_data: UserLogin):
-    """Login after workspace registration"""
+@router.put("/activate/{venue_id}", response_model=ApiResponse)
+async def activate_venue(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Activate venue by venue ID (updates is_active field to True)"""
     try:
-        from app.core.logging_config import LoggerMixin
+        from app.database.firestore import get_venue_repo
+        from app.core.logging_config import get_logger
         
-        class RegistrationHandler(LoggerMixin):
-            pass
+        logger = get_logger(__name__)
+        venue_repo = get_venue_repo()
         
-        handler = RegistrationHandler()
+        # Check if venue exists
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
         
-        # Use existing auth service for login
-        token = await auth_service.login_user(login_data)
+        # Check permissions - only allow if user is admin/superadmin or venue owner
+        user_role = current_user.get('role')
+        user_workspace_id = current_user.get('workspace_id')
+        venue_workspace_id = venue.get('workspace_id')
+        venue_owner_id = venue.get('owner_id')
+        venue_admin_id = venue.get('admin_id')
         
-        handler.log_operation("workspace_login", 
-                            user_id=token.user.id,
-                            email=login_data.email)
+        if not (user_role in ['admin', 'superadmin'] or 
+                current_user['id'] in [venue_owner_id, venue_admin_id] or
+                (user_workspace_id == venue_workspace_id and user_role == 'admin')):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions to activate this venue"
+            )
         
-        return token
+        # Update venue activation status (record is preserved, only is_active field is updated)
+        await venue_repo.update(venue_id, {"is_active": True})
         
+        logger.info(f"Venue activated (is_active set to True): {venue_id} by user: {current_user['id']}")
+        
+        return ApiResponse(
+            success=True,
+            message="Venue activated successfully. Record updated with is_active set to True.",
+            data={
+                "venue_id": venue_id, 
+                "venue_name": venue.get('name'),
+                "is_active": True,
+                "action": "activated"
+            }
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Login failed"
+            detail=f"Venue activation failed: {str(e)}"
         )
+
+async def _verify_entity_mappings(workspace_repo, venue_repo, user_repo, 
+                                workspace_id: str, venue_id: str, user_id: str, logger):
+    """
+    Verify that all entity mappings are correctly established
+    """
+    try:
+        # Verify workspace mappings
+        workspace = await workspace_repo.get_by_id(workspace_id)
+        assert workspace["owner_id"] == user_id, "Workspace owner_id mapping failed"
+        assert venue_id in workspace["venue_ids"], "Workspace venue_ids mapping failed"
+        assert user_id in workspace["user_ids"], "Workspace user_ids mapping failed"
+        
+        # Verify venue mappings
+        venue = await venue_repo.get_by_id(venue_id)
+        assert venue["workspace_id"] == workspace_id, "Venue workspace_id mapping failed"
+        assert venue["owner_id"] == user_id, "Venue owner_id mapping failed"
+        assert venue["admin_id"] == user_id, "Venue admin_id mapping failed"
+        assert user_id in venue["user_ids"], "Venue user_ids mapping failed"
+        
+        # Verify user mappings
+        user = await user_repo.get_by_id(user_id)
+        assert user["workspace_id"] == workspace_id, "User workspace_id mapping failed"
+        assert user["venue_id"] == venue_id, "User venue_id mapping failed"
+        assert venue_id in user["venue_ids"], "User venue_ids mapping failed"
+        assert user["is_workspace_owner"] == True, "User is_workspace_owner mapping failed"
+        assert user["is_venue_owner"] == True, "User is_venue_owner mapping failed"
+        
+        logger.info("All entity mappings verified successfully")
+        
+    except AssertionError as e:
+        logger.error(f"Entity mapping verification failed: {e}")
+        raise Exception(f"Entity mapping verification failed: {e}")
+    except Exception as e:
+        logger.error(f"Error during mapping verification: {e}")
+        raise Exception(f"Mapping verification error: {e}")
