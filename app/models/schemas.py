@@ -292,7 +292,7 @@ class VenueBase(BaseSchema):
     description: str = Field(..., max_length=1000)
     location: VenueLocation
     mobile_number: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
-    email: EmailStr
+    email: Optional[EmailStr] = None
     website: Optional[str] = None
     cuisine_types: List[str] = Field(default_factory=list)
     price_range: PriceRange
