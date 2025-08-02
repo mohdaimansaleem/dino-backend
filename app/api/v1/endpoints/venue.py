@@ -65,16 +65,16 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
                 detail="Authentication required"
             )
         
-        # Check workspace permissions
-        target_workspace_id = data.get('workspace_id')
-        user_workspace_id = current_user.get('workspace_id')
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
         
-        if target_workspace_id and user_workspace_id != target_workspace_id:
-            if current_user.get('role') != 'admin':
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot create venues in different workspace"
-                )
+        # Only superadmin can create venues
+        if user_role != 'superadmin':
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmin can create venues"
+            )
     
     async def _validate_access_permissions(self, 
                                          item: Dict[str, Any], 
@@ -86,9 +86,22 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
         # Call parent workspace validation
         await super()._validate_access_permissions(item, current_user)
         
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
         # Additional venue-specific validation
-        if current_user.get('role') not in ['admin']:
-            # Check if user is venue owner/admin
+        if user_role == 'superadmin':
+            return  # Superadmin can access all venues
+        elif user_role == 'admin':
+            # Admin can only access venues they manage
+            if item.get('admin_id') != current_user['id']:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin can only access venues they manage"
+                )
+        else:
+            # Operators and others need to be venue owner/admin
             if (item.get('owner_id') != current_user['id'] and 
                 item.get('admin_id') != current_user['id']):
                 raise HTTPException(

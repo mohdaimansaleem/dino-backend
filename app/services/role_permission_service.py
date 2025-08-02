@@ -98,12 +98,26 @@ class RolePermissionService:
         if role == UserRole.SUPERADMIN:
             return True
         
-        # Admin has most permissions except workspace-level ones
+        # Admin has limited permissions - cannot manage workspace, create venues, or manage users/roles
         if role == UserRole.ADMIN:
             admin_denied_permissions = [
-                "workspace.delete", "workspace.manage", "workspace:delete", "workspace:settings",
-                "user.create", "user.delete", "user:create", "user:delete", "role:manage",
-                "venue.create", "venue.delete", "venue:create", "venue:delete"
+                # Workspace management (superadmin only)
+                "workspace.delete", "workspace.manage", "workspace.create", 
+                "workspace:delete", "workspace:settings", "workspace:create", "workspace:manage",
+                
+                # User management (superadmin only for admin/superadmin users)
+                "user.create", "user.delete", "user:create", "user:delete", 
+                "user:create_admin", "user:create_superadmin", "user:delete_admin", "user:delete_superadmin",
+                
+                # Role and permission management (superadmin only)
+                "role:manage", "role.create", "role.delete", "role:create", "role:delete",
+                "permission:manage", "permission.create", "permission.delete", "permission:create", "permission:delete",
+                
+                # Venue creation/deletion (superadmin only)
+                "venue.create", "venue.delete", "venue:create", "venue:delete",
+                
+                # System-level operations
+                "system:manage", "system:settings", "backup:create", "backup:restore"
             ]
             return not any(perm in admin_denied_permissions for perm in required_permissions)
         
@@ -218,10 +232,19 @@ class RolePermissionService:
         target_role = UserRole(user_data.get('role', 'operator'))
         
         # Validate role creation permissions
-        if creator_role == UserRole.ADMIN and target_role != UserRole.OPERATOR:
+        if creator_role == UserRole.ADMIN:
+            if target_role != UserRole.OPERATOR:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin can only create Operator users"
+                )
+        elif creator_role == UserRole.SUPERADMIN:
+            # Superadmin can create any role
+            pass
+        else:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Admin can only create Operator users"
+                detail="Insufficient permissions to create users"
             )
         
         # Validate venue role constraint
@@ -367,30 +390,30 @@ class RolePermissionService:
         
         elif role == UserRole.ADMIN:
             return [
-                # Workspace permissions (limited)
+                # Workspace permissions (read only)
                 "workspace.read", "workspace:read",
                 
-                # Venue permissions
-                "venue.read", "venue.update", "venue.manage",
-                "venue:read", "venue:update", "venue:analytics", "venue:settings",
+                # Venue permissions (limited to venues they manage)
+                "venue.read", "venue.update", "venue:read", "venue:update", 
+                "venue:analytics", "venue:settings",
                 
-                # User permissions (limited)
+                # User permissions (limited to operators only)
                 "user.read", "user.update", "user:read", "user:update_operator",
                 "user:create_operator", "user:change_operator_password",
                 
-                # Menu permissions
+                # Menu permissions (for venues they manage)
                 "menu.create", "menu.read", "menu.update", "menu.delete",
                 "menu:create", "menu:read", "menu:update", "menu:delete",
                 
-                # Order permissions
+                # Order permissions (for venues they manage)
                 "order.create", "order.read", "order.update", "order.manage",
                 "order:read", "order:update", "order:analytics",
                 
-                # Table permissions
+                # Table permissions (for venues they manage)
                 "table.create", "table.read", "table.update", "table.delete",
                 "table:create", "table:read", "table:update", "table:delete",
                 
-                # Analytics permissions
+                # Analytics permissions (limited to venues they manage)
                 "analytics.read", "customer:read", "customer:analytics"
             ]
         
@@ -419,12 +442,110 @@ class RolePermissionService:
         
         user = await self.user_repo.get_by_id(user_id)
         if not user:
+            logger.error(f"User not found: {user_id}")
             return {"error": "User not found"}
         
-        user_role = UserRole(user.get('role', 'operator'))
+        # Get role from role_id field
+        role_id = user.get('role_id')
+        if not role_id:
+            logger.error(f"User has no role_id: {user_id}, user data: {user}")
+            return {"error": "User has no role assigned"}
+        
+        try:
+            from app.database.firestore import get_role_repo
+            role_repo = get_role_repo()
+            role = await role_repo.get_by_id(role_id)
+            
+            if not role:
+                logger.error(f"Role not found for role_id: {role_id}")
+                return {"error": "User role not found"}
+            
+            role_name = role.get('name', 'operator')
+            logger.info(f"Found role for user {user_id}: {role_name} (role_id: {role_id})")
+            
+            # Convert role name to UserRole enum for consistency
+            if role_name == 'superadmin':
+                user_role = UserRole.SUPERADMIN
+            elif role_name == 'admin':
+                user_role = UserRole.ADMIN
+            elif role_name == 'operator':
+                user_role = UserRole.OPERATOR
+            else:
+                user_role = UserRole.OPERATOR  # Default fallback
+            
+            dashboard_permissions = {
+                "role": role_name,  # Use actual role name from database
+                "components": {
+                    "dashboard": True,
+                    "orders": True,
+                    "tables": True,
+                    "menu": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "customers": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "analytics": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "settings": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "user_management": user_role == UserRole.SUPERADMIN,
+                    "venue_management": user_role == UserRole.SUPERADMIN,
+                    "workspace_settings": user_role == UserRole.SUPERADMIN
+                },
+                "actions": {
+                    "create_venue": user_role == UserRole.SUPERADMIN,
+                    "switch_venue": user_role == UserRole.SUPERADMIN,
+                    "create_users": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "change_passwords": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "manage_menu": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "view_analytics": user_role in [UserRole.SUPERADMIN, UserRole.ADMIN],
+                    "update_order_status": True,
+                    "update_table_status": True
+                }
+            }
+            
+            logger.info(f"Dashboard permissions for user {user_id}: role={role_name}, superadmin_access={user_role == UserRole.SUPERADMIN}")
+            return dashboard_permissions
+            
+        except Exception as e:
+            logger.error(f"Error getting dashboard permissions for user {user_id}: {e}", exc_info=True)
+            # Fallback to operator permissions
+            return {
+                "role": "operator",
+                "components": {
+                    "dashboard": True,
+                    "orders": True,
+                    "tables": True,
+                    "menu": False,
+                    "customers": False,
+                    "analytics": False,
+                    "settings": False,
+                    "user_management": False,
+                    "venue_management": False,
+                    "workspace_settings": False
+                },
+                "actions": {
+                    "create_venue": False,
+                    "switch_venue": False,
+                    "create_users": False,
+                    "change_passwords": False,
+                    "manage_menu": False,
+                    "view_analytics": False,
+                    "update_order_status": True,
+                    "update_table_status": True
+                }
+            }
+    
+    async def get_role_dashboard_permissions_with_role(self, role_name: str) -> Dict[str, Any]:
+        """Get dashboard permissions directly from role name"""
+        
+        # Convert role name to UserRole enum for consistency
+        if role_name == 'superadmin':
+            user_role = UserRole.SUPERADMIN
+        elif role_name == 'admin':
+            user_role = UserRole.ADMIN
+        elif role_name == 'operator':
+            user_role = UserRole.OPERATOR
+        else:
+            user_role = UserRole.OPERATOR  # Default fallback
         
         dashboard_permissions = {
-            "role": user_role.value,
+            "role": role_name,  # Use actual role name from database
             "components": {
                 "dashboard": True,
                 "orders": True,
@@ -449,6 +570,7 @@ class RolePermissionService:
             }
         }
         
+        logger.info(f"Dashboard permissions for role {role_name}: superadmin_access={user_role == UserRole.SUPERADMIN}")
         return dashboard_permissions
 
 

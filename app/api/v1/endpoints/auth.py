@@ -370,8 +370,8 @@ async def get_user_permissions(current_user: Dict[str, Any] = Depends(get_curren
                     'description': perm['description']
                 })
         
-        # Get dashboard permissions
-        dashboard_permissions = await role_permission_service.get_role_dashboard_permissions(current_user['id'])
+        # Get dashboard permissions using the role we already have
+        dashboard_permissions = await role_permission_service.get_role_dashboard_permissions_with_role(role['name'])
         
         return ApiResponse(
             success=True,
@@ -450,8 +450,8 @@ async def refresh_user_permissions(current_user: Dict[str, Any] = Depends(get_cu
                     'description': perm['description']
                 })
         
-        # Get dashboard permissions
-        dashboard_permissions = await role_permission_service.get_role_dashboard_permissions(current_user['id'])
+        # Get dashboard permissions using the role we already have
+        dashboard_permissions = await role_permission_service.get_role_dashboard_permissions_with_role(role['name'])
         
         return ApiResponse(
             success=True,
@@ -516,7 +516,9 @@ async def deactivate_venue(
         user_role = await _get_user_role(current_user)
         venue_admin_id = venue.get('admin_id')
         
-        if not (user_role in ['admin', 'superadmin'] or 
+        # Only superadmin or venue owner can deactivate venues
+        # Admin cannot deactivate venues they don't own
+        if not (user_role == 'superadmin' or 
                 current_user['id'] == venue_admin_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -572,7 +574,9 @@ async def activate_venue(
         user_role = await _get_user_role(current_user)
         venue_admin_id = venue.get('admin_id')
         
-        if not (user_role in ['admin', 'superadmin'] or 
+        # Only superadmin or venue owner can deactivate venues
+        # Admin cannot deactivate venues they don't own
+        if not (user_role == 'superadmin' or 
                 current_user['id'] == venue_admin_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

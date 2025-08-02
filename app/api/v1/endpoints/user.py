@@ -83,8 +83,18 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         from app.core.security import _get_user_role
         user_role = await _get_user_role(current_user)
         
-        # Admins can update users
-        if user_role in ['admin', 'superadmin']:
+        # Superadmin can update any user, Admin can only update operators
+        if user_role == 'superadmin':
+            return
+        elif user_role == 'admin':
+            # Admin can only update operator users
+            from app.core.security import _get_user_role
+            target_user_role = await _get_user_role(item)
+            if target_user_role != 'operator':
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Admin can only update operator users"
+                )
             return
         
         raise HTTPException(

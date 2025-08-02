@@ -102,6 +102,20 @@ async def get_current_admin_user(current_user = Depends(get_current_user)):
     return current_user
 
 
+async def get_current_superadmin_user(current_user = Depends(get_current_user)):
+    """Get current superadmin user (superadmin-only access control)"""
+    # Get user role from role_id
+    user_role = await _get_user_role(current_user)
+    
+    if user_role != "superadmin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Superadmin access required"
+        )
+    
+    return current_user
+
+
 async def _get_user_role(user_data: Dict[str, Any]) -> str:
     """Get user role from role_id"""
     role_id = user_data.get("role_id")
@@ -145,9 +159,19 @@ async def verify_venue_access(venue_id: str, current_user: Dict[str, Any]) -> bo
     # Get user role
     user_role = await _get_user_role(current_user)
     
-    # SuperAdmin and Admin can access all venues
-    if user_role in ["superadmin", "admin"]:
+    # SuperAdmin can access all venues
+    if user_role == "superadmin":
         return True
+    
+    # Admin can only access venues they manage (through admin_id)
+    if user_role == "admin":
+        if venue.get("admin_id") == current_user["id"]:
+            return True
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin can only access venues they manage"
+            )
     
     # Venue owner can only access their own venues
     if not verify_cafe_ownership(venue.get("admin_id", ""), current_user["id"]):
@@ -179,7 +203,8 @@ async def verify_workspace_access(workspace_id: str, current_user: Dict[str, Any
     if user_role == "superadmin":
         return True
     
-    # Admin and operator roles can access workspaces
+    # Admin and operator roles have limited workspace access
+    # Admin can access workspace data but cannot modify workspace settings
     # TODO: Implement proper workspace-user relationship logic
     if user_role in ["admin", "operator"]:
         return True

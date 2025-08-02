@@ -530,16 +530,19 @@ async def update_permission(
                 detail="Permission not found"
             )
         
-        # Check access permissions
-        if (current_user.get('role') != 'superadmin' and 
-            permission.get('workspace_id') != current_user.get('workspace_id')):
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Only superadmin can update permissions
+        if user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to update this permission"
+                detail="Only superadmin can update permissions"
             )
         
-        # Prevent updating system permissions
-        if permission.get('is_system_permission', False) and current_user.get('role') != 'superadmin':
+        # Prevent updating system permissions (redundant check since only superadmin can update)
+        if permission.get('is_system_permission', False) and user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot update system permissions"
@@ -594,12 +597,15 @@ async def delete_permission(
                 detail="Permission not found"
             )
         
-        # Check access permissions
-        if (current_user.get('role') != 'superadmin' and 
-            permission.get('workspace_id') != current_user.get('workspace_id')):
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Only superadmin can delete permissions
+        if user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to delete this permission"
+                detail="Only superadmin can delete permissions"
             )
         
         # Prevent deleting system permissions
@@ -882,4 +888,103 @@ async def get_unused_permissions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get unused permissions"
+        )
+
+# =============================================================================
+# SETUP ENDPOINTS (NO AUTHENTICATION)
+# =============================================================================
+
+@router.post("/setup/bulk-create", 
+             response_model=BulkPermissionResponse,
+             summary="Setup: Bulk create permissions",
+             description="Create multiple permissions at once (NO AUTH - SETUP ONLY)")
+async def setup_bulk_create_permissions(
+    bulk_data: BulkPermissionCreate
+    # NO AUTHENTICATION FOR SETUP
+):
+    """Bulk create permissions for system setup (NO AUTH)"""
+    try:
+        # Prepare permissions data for setup
+        permissions_data = []
+        for perm in bulk_data.permissions:
+            perm_dict = perm.dict()
+            perm_dict['created_by'] = 'system_setup'
+            perm_dict['is_system_permission'] = True
+            permissions_data.append(perm_dict)
+        
+        # Bulk create
+        result = await perm_repo.bulk_create(permissions_data)
+        
+        # Convert created permissions to response format
+        created_permissions = [
+            PermissionResponse(**perm, roles_count=0)
+            for perm in result['created_permissions']
+        ]
+        
+        logger.info(f"Setup bulk permission creation: {result['created']} created, {result['skipped']} skipped")
+        
+        return BulkPermissionResponse(
+            success=True,
+            created=result['created'],
+            skipped=result['skipped'],
+            errors=result['errors'],
+            created_permissions=created_permissions
+        )
+        
+    except Exception as e:
+        logger.error(f"Error in setup bulk creating permissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to bulk create permissions: {str(e)}"
+        )
+
+@router.post("/setup/create", 
+             response_model=ApiResponse,
+             status_code=status.HTTP_201_CREATED,
+             summary="Setup: Create single permission",
+             description="Create a single permission (NO AUTH - SETUP ONLY)")
+async def setup_create_permission(
+    permission_data: PermissionCreate
+    # NO AUTHENTICATION FOR SETUP
+):
+    """Create a single permission for system setup (NO AUTH)"""
+    try:
+        # Check if permission with same name already exists
+        existing_permission = await perm_repo.get_by_name(permission_data.name)
+        if existing_permission:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Permission with name '{permission_data.name}' already exists"
+            )
+        
+        # Prepare permission data for setup
+        perm_dict = permission_data.dict()
+        perm_dict['created_by'] = 'system_setup'
+        perm_dict['is_system_permission'] = True
+        
+        # Create permission
+        perm_id = await perm_repo.create(perm_dict)
+        
+        # Get created permission
+        created_permission = await perm_repo.get_by_id(perm_id)
+        
+        perm_response = PermissionResponse(
+            **created_permission,
+            roles_count=0
+        )
+        
+        logger.info(f"Setup permission created: {permission_data.name}")
+        return ApiResponse(
+            success=True,
+            message="Permission created successfully",
+            data=perm_response.dict()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in setup creating permission: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create permission: {str(e)}"
         )

@@ -75,11 +75,15 @@ class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreate, WorkspaceUpdat
                 detail="Authentication required"
             )
         
-        # Only admins can create workspaces
-        if current_user.get('role') != 'admin':
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Only superadmin can create workspaces
+        if user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only administrators can create workspaces"
+                detail="Only superadmin can create workspaces"
             )
     
     async def _validate_access_permissions(self, 
@@ -92,8 +96,12 @@ class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreate, WorkspaceUpdat
                 detail="Authentication required"
             )
         
-        # Admin users can access all workspaces
-        if current_user.get('role') == 'admin':
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Superadmin can access all workspaces
+        if user_role == 'superadmin':
             return
         
         # Users can only access their own workspace
@@ -111,8 +119,12 @@ class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreate, WorkspaceUpdat
         if not current_user:
             return []
         
-        # Admin users see all workspaces
-        if current_user.get('role') == 'admin':
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Superadmin sees all workspaces
+        if user_role == 'superadmin':
             return items
         
         # Regular users only see their workspace

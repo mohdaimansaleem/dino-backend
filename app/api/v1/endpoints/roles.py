@@ -450,8 +450,12 @@ async def update_role(
                 detail="Role not found"
             )
         
-        # Access permissions simplified for new schema
-        if current_user.get('role') != 'superadmin':
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Only superadmin can update roles
+        if user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only superadmin can update roles"
@@ -522,8 +526,12 @@ async def delete_role(
                 detail="Role not found"
             )
         
-        # Access permissions simplified for new schema
-        if current_user.get('role') != 'superadmin':
+        # Get user role properly
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Only superadmin can delete roles
+        if user_role != 'superadmin':
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only superadmin can delete roles"
@@ -546,7 +554,7 @@ async def delete_role(
             )
         
         # Delete role
-        if hard_delete and current_user.get('role') == 'superadmin':
+        if hard_delete and user_role == 'superadmin':
             await role_repo.hard_delete(role_id)
             message = "Role permanently deleted"
         else:
@@ -866,6 +874,107 @@ async def assign_single_permission_to_role(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to assign permission"
+        )
+
+# =============================================================================
+# SETUP ENDPOINTS (NO AUTHENTICATION)
+# =============================================================================
+
+@router.post("/setup/create", 
+             response_model=ApiResponse,
+             status_code=status.HTTP_201_CREATED,
+             summary="Setup: Create role",
+             description="Create a new role (NO AUTH - SETUP ONLY)")
+async def setup_create_role(
+    role_data: RoleCreate
+    # NO AUTHENTICATION FOR SETUP
+):
+    """Create a new role for system setup (NO AUTH)"""
+    try:
+        # Check if role name already exists
+        existing_role = await role_repo.get_by_name(role_data.name.value)
+        if existing_role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Role with name '{role_data.name.value}' already exists"
+            )
+        
+        # Prepare role data for setup
+        role_dict = role_data.dict()
+        role_dict['name'] = role_data.name.value  # Convert enum to string
+        role_dict['created_by'] = 'system_setup'
+        
+        # Create role
+        role_id = await role_repo.create(role_dict)
+        
+        # Get created role with permissions
+        created_role = await role_repo.get_by_id(role_id)
+        permissions = await role_repo.get_role_permissions(role_id)
+        
+        role_response = RoleResponse(
+            **created_role,
+            permissions=permissions,
+            user_count=0
+        )
+        
+        logger.info(f"Setup role created: {role_data.name.value}")
+        return ApiResponse(
+            success=True,
+            message="Role created successfully",
+            data=role_response.dict()
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in setup creating role: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create role: {str(e)}"
+        )
+
+@router.post("/setup/{role_id}/assign-permissions", 
+             response_model=ApiResponse,
+             summary="Setup: Assign permissions to role",
+             description="Assign permissions to a role (NO AUTH - SETUP ONLY)")
+async def setup_assign_permissions_to_role(
+    role_id: str,
+    permission_mapping: RolePermissionMapping
+    # NO AUTHENTICATION FOR SETUP
+):
+    """Assign permissions to role for system setup (NO AUTH)"""
+    try:
+        # Validate role exists
+        role = await role_repo.get_by_id(role_id)
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found"
+            )
+        
+        # Validate permissions exist (skip for setup to avoid circular dependencies)
+        # perm_repo = get_permission_repo()
+        # for perm_id in permission_mapping.permission_ids:
+        #     perm = await perm_repo.get_by_id(perm_id)
+        #     if not perm:
+        #         logger.warning(f"Permission {perm_id} not found during setup, skipping validation")
+        
+        # Assign permissions
+        await role_repo.assign_permissions(role_id, permission_mapping.permission_ids)
+        
+        logger.info(f"Setup permissions assigned to role {role_id}")
+        return ApiResponse(
+            success=True,
+            message="Permissions assigned successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in setup assigning permissions to role: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to assign permissions: {str(e)}"
         )
 
 class BulkPermissionAssignment(BaseModel):
