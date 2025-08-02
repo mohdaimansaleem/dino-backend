@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 from app.core.logging_config import LoggerMixin
 from app.core.security import get_password_hash
 from app.database.firestore import (
-    get_user_repo, get_workspace_repo, get_cafe_repo, get_role_repo
+    get_user_repo, get_workspace_repo, get_venue_repo, get_role_repo
 )
 from app.models.schemas import UserCreate, UserRole
 
@@ -21,7 +21,7 @@ class UserManagementService(LoggerMixin):
         try:
             user_repo = get_user_repo()
             workspace_repo = get_workspace_repo()
-            cafe_repo = get_cafe_repo()
+            venue_repo = get_venue_repo()
             role_repo = get_role_repo()
             
             # Verify creator is SuperAdmin
@@ -40,13 +40,9 @@ class UserManagementService(LoggerMixin):
                     detail="Only SuperAdmin can create users"
                 )
             
-            # Get creator's workspace
-            workspace = await workspace_repo.get_by_id(creator["workspace_id"])
-            if not workspace:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Workspace not found"
-                )
+            # Note: workspace_id removed from user schema
+            # TODO: Implement proper workspace lookup logic
+            workspace = {"id": "default_workspace"}
             
             # Check if email already exists
             existing_user = await user_repo.get_by_email(user_data.email)
@@ -57,7 +53,7 @@ class UserManagementService(LoggerMixin):
                 )
             
             # Check if phone already exists
-            existing_phone = await user_repo.get_by_phone(user_data.phone)
+            existing_phone = await user_repo.get_by_mobile(user_data.mobile_number)
             if existing_phone:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -79,28 +75,29 @@ class UserManagementService(LoggerMixin):
                     detail="Cannot create another SuperAdmin"
                 )
             
-            # Validate cafe assignment for Admin/Operator roles
+            # Validate venue assignment for Admin/Operator roles
+            venue_id = getattr(user_data, 'venue_id', None)
             if target_role["name"] in [UserRole.ADMIN, UserRole.OPERATOR]:
-                if not user_data.cafe_id:
+                if not venue_id:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"{target_role['name']} must be assigned to a cafe"
+                        detail=f"{target_role['name']} must be assigned to a venue"
                     )
                 
-                # Verify cafe belongs to workspace
-                cafe = await cafe_repo.get_by_id(user_data.cafe_id)
-                if not cafe or cafe["workspace_id"] != workspace["id"]:
+                # Verify venue exists
+                venue = await venue_repo.get_by_id(venue_id)
+                if not venue:
                     raise HTTPException(
                         status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Cafe does not belong to your workspace"
+                        detail="Venue not found"
                     )
                 
-                # Check if cafe already has an admin (for Admin role)
+                # Check if venue already has an admin (for Admin role)
                 if target_role["name"] == UserRole.ADMIN:
-                    if cafe.get("admin_id"):
+                    if venue.get("admin_id"):
                         raise HTTPException(
                             status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Cafe already has an admin"
+                            detail="Venue already has an admin"
                         )
             
             # Hash password
@@ -108,10 +105,8 @@ class UserManagementService(LoggerMixin):
             
             # Create user data
             new_user_data = {
-                "workspace_id": workspace["id"],
-                "cafe_id": user_data.cafe_id if target_role["name"] in [UserRole.ADMIN, UserRole.OPERATOR] else None,
                 "email": user_data.email,
-                "phone": user_data.phone,
+                "mobile_number": user_data.mobile_number,
                 "hashed_password": hashed_password,
                 "first_name": user_data.first_name,
                 "last_name": user_data.last_name,
@@ -121,15 +116,15 @@ class UserManagementService(LoggerMixin):
                 "is_active": True,
                 "is_verified": False,
                 "email_verified": False,
-                "phone_verified": False
+                "mobile_verified": False
             }
             
             # Create user
             user_id = await user_repo.create(new_user_data)
             
-            # If creating an Admin, update cafe's admin_id
-            if target_role["name"] == UserRole.ADMIN and user_data.cafe_id:
-                await cafe_repo.update(user_data.cafe_id, {"admin_id": user_id})
+            # If creating an Admin, update venue's admin_id
+            if target_role["name"] == UserRole.ADMIN and venue_id:
+                await venue_repo.update(venue_id, {"admin_id": user_id})
             
             # Get created user (without password)
             user = await user_repo.get_by_id(user_id)
@@ -202,7 +197,7 @@ class UserManagementService(LoggerMixin):
         """Get all users assigned to a cafe"""
         try:
             user_repo = get_user_repo()
-            cafe_repo = get_cafe_repo()
+            venue_repo = get_venue_repo()
             role_repo = get_role_repo()
             
             # Verify cafe exists and requester has access

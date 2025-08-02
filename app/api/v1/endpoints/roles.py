@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer
 from app.models.schemas import (
     ApiResponse, PaginatedResponse, UserRole as UserRoleEnum
 )
-from app.core.base_endpoint import WorkspaceIsolatedEndpoint
+# Removed base endpoint dependency
 from app.database.firestore import get_firestore_client
 from app.services.role_permission_service import role_permission_service
 from app.core.security import get_current_user, get_current_admin_user

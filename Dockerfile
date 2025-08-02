@@ -34,11 +34,9 @@ RUN adduser --disabled-password --gecos '' appuser && \
 USER appuser
 
 # Expose port
-EXPOSE 8000
+EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# No health check in Dockerfile - let Cloud Run handle it
+# CMD with exec form and proper signal handling
+# Use shell form to allow PORT environment variable expansion
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1

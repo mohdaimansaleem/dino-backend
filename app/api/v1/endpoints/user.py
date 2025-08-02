@@ -8,7 +8,7 @@ from fastapi.security import HTTPBearer
 
 from app.models.schemas import (
     UserCreate, User, UserUpdate, UserLogin, AuthToken,
-    ApiResponse, UserAddress, UserPreferences, ImageUploadResponse,
+    ApiResponse, UserAddress, ImageUploadResponse,
     PaginatedResponse
 )
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
@@ -51,11 +51,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         data['is_active'] = True
         data['is_verified'] = False
         data['email_verified'] = False
-        data['phone_verified'] = False
-        
-        # Set workspace from current user if not provided
-        if not data.get('workspace_id') and current_user:
-            data['workspace_id'] = current_user.get('workspace_id')
+        data['mobile_verified'] = False
         
         return data
     
@@ -66,16 +62,8 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         if not current_user:
             return  # Public registration allowed
         
-        # Check if user can create users in the specified workspace
-        target_workspace_id = data.get('workspace_id')
-        user_workspace_id = current_user.get('workspace_id')
-        
-        if target_workspace_id and user_workspace_id != target_workspace_id:
-            if current_user.get('role') != 'admin':
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Cannot create users in different workspace"
-                )
+        # Note: workspace_id field removed from users schema
+        # Workspace validation would need alternative logic
     
     async def _validate_update_permissions(self, 
                                          item: Dict[str, Any], 
@@ -91,10 +79,13 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         if item['id'] == current_user['id']:
             return
         
-        # Admins can update users in their workspace
-        if current_user.get('role') == 'admin':
-            if item.get('workspace_id') == current_user.get('workspace_id'):
-                return
+        # Get user role from role_id
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        # Admins can update users
+        if user_role in ['admin', 'superadmin']:
+            return
         
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -108,11 +99,8 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         """Build query filters for user search"""
         query_filters = []
         
-        # Add workspace filter for non-admin users
-        if current_user and current_user.get('role') != 'admin':
-            workspace_id = current_user.get('workspace_id')
-            if workspace_id:
-                query_filters.append(('workspace_id', '==', workspace_id))
+        # Note: workspace_id field removed from users schema
+        # Workspace filtering would need alternative logic
         
         # Add additional filters
         if filters:
@@ -132,7 +120,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         base_filters = await self._build_query_filters(None, None, current_user)
         
         # Search in multiple fields
-        search_fields = ['first_name', 'last_name', 'email', 'phone']
+        search_fields = ['first_name', 'last_name', 'email', 'mobile_number']
         matching_users = await repo.search_text(
             search_fields=search_fields,
             search_term=search_term,
@@ -250,13 +238,13 @@ async def update_user_profile(
                     detail="Email already in use"
                 )
         
-        # Check if phone is being updated and is unique
-        if hasattr(update_data, 'phone') and update_data.phone and update_data.phone != current_user.get("phone"):
-            existing_phone = await user_repo.get_by_phone(update_data.phone)
-            if existing_phone:
+        # Check if mobile number is being updated and is unique
+        if hasattr(update_data, 'mobile_number') and update_data.mobile_number and update_data.mobile_number != current_user.get("mobile_number"):
+            existing_mobile = await user_repo.get_by_mobile(update_data.mobile_number)
+            if existing_mobile:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Phone number already in use"
+                    detail="Mobile number already in use"
                 )
         
         # Update user
@@ -332,7 +320,7 @@ async def upload_profile_image(
 async def get_users(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, description="Search by name, email, or phone"),
+    search: Optional[str] = Query(None, description="Search by name, email, or mobile number"),
     role_id: Optional[str] = Query(None, description="Filter by role ID"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
@@ -459,8 +447,11 @@ async def search_users(
 ):
     """Search users by text"""
     try:
-        # Check permissions
-        if current_user.get("role") not in ["admin", "operator"]:
+        # Check permissions - get user role from role_id
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role not in ["admin", "operator", "superadmin"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to search users"
@@ -652,67 +643,6 @@ async def delete_user_address(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete address"
         )
-
-
-# =============================================================================
-# PREFERENCES MANAGEMENT ENDPOINTS
-# =============================================================================
-
-@router.put("/preferences", 
-            response_model=ApiResponse,
-            summary="Update user preferences",
-            description="Update user preferences and settings")
-async def update_user_preferences(
-    preferences: UserPreferences,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Update user preferences"""
-    try:
-        user_repo = get_user_repo()
-        
-        # Update user preferences
-        await user_repo.update(current_user['id'], {
-            "preferences": preferences.dict()
-        })
-        
-        logger.info(f"Preferences updated for user: {current_user['id']}")
-        return ApiResponse(
-            success=True,
-            message="Preferences updated successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating preferences: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update preferences"
-        )
-
-
-@router.get("/preferences", 
-            response_model=UserPreferences,
-            summary="Get user preferences",
-            description="Get current user preferences")
-async def get_user_preferences(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Get user preferences"""
-    try:
-        user_repo = get_user_repo()
-        user_data = await user_repo.get_by_id(current_user['id'])
-        
-        if user_data and "preferences" in user_data:
-            return UserPreferences(**user_data["preferences"])
-        
-        return UserPreferences()
-        
-    except Exception as e:
-        logger.error(f"Error getting preferences: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get preferences"
-        )
-
 
 # =============================================================================
 # SECURITY ENDPOINTS

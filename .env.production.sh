@@ -64,7 +64,7 @@ RATE_LIMIT_PER_MINUTE=60
 # CLOUD RUN
 # =============================================================================
 CLOUD_RUN_SERVICE_NAME=dino-backend-api
-CLOUD_RUN_IMAGE_NAME=us-central1-docker.pkg.dev/${GCP_PROJECT_ID}/job-manager-artifacts/${CLOUD_RUN_SERVICE_NAME}
+CLOUD_RUN_IMAGE_NAME=us-central1-docker.pkg.dev/edl-idaas-fdev-platform-2c85/job-manager-artifacts/dino-backend-api
 CLOUD_RUN_REGION=us-central1
 CLOUD_RUN_MEMORY=512Mi
 CLOUD_RUN_CPU=1

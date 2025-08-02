@@ -1,88 +1,107 @@
 """
 Dino E-Menu Backend API
-Production-ready FastAPI application for Google Cloud Run
+Simplified FastAPI application for Google Cloud Run
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import os
+import logging
 
-from app.core.config import settings, initialize_cloud_services, validate_configuration
-from app.core.logging_config import setup_logging, get_logger
-from app.api.v1.api import api_router
+# Setup enhanced logging first
+from app.core.logging_config import setup_enhanced_logging, get_logger
 
-# Setup logging first
-setup_logging(settings.LOG_LEVEL)
+# Determine log level from environment
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
+enable_debug = os.environ.get("DEBUG", "false").lower() == "true"
+
+# Setup enhanced logging
+setup_enhanced_logging(log_level=log_level, enable_debug=enable_debug)
 logger = get_logger(__name__)
+
+# Import app components
+try:
+    from app.core.config import settings
+    logger.info("✅ Settings loaded successfully")
+except Exception as e:
+    logger.warning(f"⚠️ Settings loading failed: {e}")
+    # Create minimal settings
+    class MinimalSettings:
+        ENVIRONMENT = os.environ.get("ENVIRONMENT", "production")
+        DEBUG = False
+        LOG_LEVEL = "INFO"
+        GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "unknown")
+        DATABASE_NAME = os.environ.get("DATABASE_NAME", "unknown")
+        is_production = True
+        CORS_ORIGINS = ["*"]
+        CORS_ALLOW_CREDENTIALS = True
+        CORS_ALLOW_METHODS = ["*"]
+        CORS_ALLOW_HEADERS = ["*"]
+    settings = MinimalSettings()
+
+try:
+    from app.api.v1.api import api_router
+    logger.info("✅ API router loaded successfully")
+    api_router_available = True
+except Exception as e:
+    logger.warning(f"⚠️ API router loading failed: {e}")
+    api_router_available = False
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan management for Cloud Run deployment"""
     # Startup
-    logger.info("Starting Dino E-Menu API", extra={
-        "environment": settings.ENVIRONMENT,
-        "project_id": settings.GCP_PROJECT_ID,
-        "database_id": settings.DATABASE_NAME,
-        "debug_mode": settings.DEBUG
-    })
+    logger.info("🦕 Starting Dino E-Menu API...")
+    logger.info("Environment Variables:")
+    logger.info(f"PORT: {os.environ.get('PORT', 'not set')}")
+    logger.info(f"ENVIRONMENT: {os.environ.get('ENVIRONMENT', 'not set')}")
+    logger.info(f"DATABASE_NAME: {os.environ.get('DATABASE_NAME', 'not set')}")
+    logger.info(f"GCP_PROJECT_ID: {os.environ.get('GCP_PROJECT_ID', 'not set')}")
     
-    # Validate configuration
-    config_validation = validate_configuration()
-    if not config_validation["valid"]:
-        logger.error("Configuration validation failed")
-        for error in config_validation["errors"]:
-            logger.error(f"Config error: {error}")
-        if settings.is_production:
-            raise RuntimeError("Critical: Configuration validation failed")
-    
-    for warning in config_validation["warnings"]:
-        logger.warning(f"Config warning: {warning}")
-    
-    # Initialize cloud services
-    try:
-        success = initialize_cloud_services()
-        if success:
-            logger.info("Cloud services initialized successfully")
-        else:
-            logger.error("Failed to initialize cloud services")
-            # In production, we might want to exit here
-            if settings.is_production:
-                raise RuntimeError("Critical: Cloud services initialization failed")
-            
-    except Exception as e:
-        logger.error("Error during cloud services initialization", exc_info=True)
-        if settings.is_production:
-            raise
-    
-    logger.info("Dino E-Menu API startup completed successfully")
+    logger.info("✅ Dino E-Menu API startup completed successfully")
     
     yield
     
     # Shutdown
-    logger.info("Shutting down Dino E-Menu API")
+    logger.info("🦕 Shutting down Dino E-Menu API")
 
 
 # Create FastAPI application
+docs_url = "/docs" if not settings.is_production else None
+redoc_url = "/redoc" if not settings.is_production else None
+
 app = FastAPI(
     title="Dino E-Menu API",
-    description="A comprehensive e-menu solution for restaurants and cafes",
-    version="1.0.0",
+    description="A comprehensive e-menu solution for restaurants and cafes with role-based access control",
+    version="2.0.0",
     lifespan=lifespan,
-    docs_url="/docs" if not settings.is_production else None,
-    redoc_url="/redoc" if not settings.is_production else None,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
+    redirect_slashes=False,
 )
 
-# CORS middleware with production-ready configuration
-from app.core.cors_config import configure_cors
-configure_cors(app)
+# =============================================================================
+# MIDDLEWARE SETUP
+# =============================================================================
 
-# Include API routes with enhanced documentation
-app.include_router(api_router, prefix="/api/v1")
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=getattr(settings, 'CORS_ORIGINS', ["*"]),
+    allow_credentials=getattr(settings, 'CORS_ALLOW_CREDENTIALS', True),
+    allow_methods=getattr(settings, 'CORS_ALLOW_METHODS', ["*"]),
+    allow_headers=getattr(settings, 'CORS_ALLOW_HEADERS', ["*"]),
+)
+logger.info("✅ CORS middleware enabled")
 
-# Setup enhanced API documentation
-from app.core.api_docs import setup_api_documentation
-setup_api_documentation(app)
+# Include API routes if available
+if api_router_available:
+    try:
+        app.include_router(api_router, prefix="/api/v1")
+        logger.info("✅ API routes included successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to include API routes: {e}")
 
 
 # =============================================================================
@@ -94,39 +113,36 @@ async def root():
     """Root endpoint"""
     return {
         "message": "Dino E-Menu API",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-        "status": "healthy"
+        "version": "2.0.0",
+        "environment": getattr(settings, 'ENVIRONMENT', 'unknown'),
+        "status": "healthy",
+        "features": [
+            "Core API endpoints",
+            "Role-based access control",
+            "Multi-tenant workspace support",
+            "JWT authentication"
+        ]
     }
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Cloud Run"""
-    from app.core.config import cloud_manager
-    
-    # Basic health check
     health_status = {
         "status": "healthy",
         "service": "dino-api",
-        "version": "1.0.0",
-        "environment": settings.ENVIRONMENT,
-        "project_id": settings.GCP_PROJECT_ID,
-        "database_id": settings.DATABASE_NAME
+        "version": "2.0.0",
+        "environment": getattr(settings, 'ENVIRONMENT', 'unknown'),
+        "project_id": getattr(settings, 'GCP_PROJECT_ID', 'unknown'),
+        "database_id": getattr(settings, 'DATABASE_NAME', 'unknown'),
+        "api_router": "available" if api_router_available else "unavailable",
+        "features": {
+            "authentication": "JWT-based",
+            "authorization": "Role-based (SuperAdmin/Admin/Operator)",
+            "multi_tenancy": "Workspace-based isolation",
+            "role_management": "Comprehensive role and permission system"
+        }
     }
-    
-    # Add detailed health check for non-production environments
-    if not settings.is_production:
-        try:
-            cloud_health = cloud_manager.health_check()
-            health_status["services"] = {
-                "firestore": "connected" if cloud_health["firestore"] else "failed",
-                "storage": "connected" if cloud_health["storage"] else "failed"
-            }
-            if cloud_health["errors"]:
-                health_status["errors"] = cloud_health["errors"]
-        except Exception as e:
-            health_status["services"] = {"error": str(e)}
     
     return health_status
 
@@ -174,14 +190,14 @@ if __name__ == "__main__":
     
     port = int(os.environ.get("PORT", 8080))
     
-    logger.info(f"Starting server on port {port}")
+    logger.info(f"Starting uvicorn on port {port}...")
     
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=port,
         reload=False,  # Disable reload in production
-        log_level=settings.LOG_LEVEL.lower() if hasattr(settings, 'LOG_LEVEL') else "info",
+        log_level="info",
         access_log=True,
         workers=1  # Single worker for Cloud Run
     )

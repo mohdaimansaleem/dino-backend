@@ -1,39 +1,33 @@
 """
 Dino Multi-Venue Platform - Main API Router
-Consolidated router with all platform endpoints and features
+Simplified router with core endpoints and roles/permissions
 """
 from fastapi import APIRouter
+from app.core.logging_config import get_logger
 
-# Import consolidated endpoints
+logger = get_logger(__name__)
+
+# Import core endpoints
 from app.api.v1.endpoints import (
-    # Core management endpoints
     user,
     venue, 
     workspace,
     menu,
     table,
     order,
-    
-    # Multi-venue platform endpoints
-    dashboard,
-    
-    # Essential endpoints
     auth,
-    
-    # Validation endpoints
-    validation
+    health,
+    roles,
+    permissions
 )
-
-# Import API documentation
-from app.core.api_docs import setup_api_documentation
 
 api_router = APIRouter()
 
 # =============================================================================
-# CORE MANAGEMENT ENDPOINTS (Enhanced)
+# CORE MANAGEMENT ENDPOINTS
 # =============================================================================
 
-# User Management (Enhanced)
+# User Management
 api_router.include_router(
     user.router, 
     prefix="/users", 
@@ -45,7 +39,7 @@ api_router.include_router(
     }
 )
 
-# Venue Management (Enhanced)
+# Venue Management
 api_router.include_router(
     venue.router, 
     prefix="/venues", 
@@ -57,7 +51,7 @@ api_router.include_router(
     }
 )
 
-# Workspace Management (Enhanced)
+# Workspace Management
 api_router.include_router(
     workspace.router, 
     prefix="/workspaces", 
@@ -69,7 +63,7 @@ api_router.include_router(
     }
 )
 
-# Menu Management (Enhanced)
+# Menu Management
 api_router.include_router(
     menu.router, 
     prefix="/menu", 
@@ -81,7 +75,7 @@ api_router.include_router(
     }
 )
 
-# Table Management (Enhanced)
+# Table Management
 api_router.include_router(
     table.router, 
     prefix="/tables", 
@@ -93,7 +87,7 @@ api_router.include_router(
     }
 )
 
-# Order Management (Enhanced)
+# Order Management
 api_router.include_router(
     order.router, 
     prefix="/orders", 
@@ -106,29 +100,10 @@ api_router.include_router(
 )
 
 # =============================================================================
-# MULTI-VENUE PLATFORM ENDPOINTS
+# AUTHENTICATION ENDPOINTS
 # =============================================================================
 
-# Note: Workspace onboarding and public ordering are now consolidated 
-# into workspace.py and order.py respectively
-
-# Dashboard Analytics
-api_router.include_router(
-    dashboard.router, 
-    prefix="/dashboard", 
-    tags=["dashboard"],
-    responses={
-        404: {"description": "Dashboard data not found"},
-        403: {"description": "Access denied"},
-        401: {"description": "Authentication required"}
-    }
-)
-
-# =============================================================================
-# ESSENTIAL ENDPOINTS
-# =============================================================================
-
-# Authentication & Registration (Consolidated)
+# Authentication & Registration
 api_router.include_router(
     auth.router, 
     prefix="/auth", 
@@ -140,15 +115,44 @@ api_router.include_router(
     }
 )
 
-# Validation Endpoints
+# Health Check Endpoints
 api_router.include_router(
-    validation.router, 
-    prefix="/validation", 
-    tags=["validation"],
+    health.router, 
+    prefix="/health", 
+    tags=["health"],
     responses={
-        422: {"description": "Validation failed"},
+        200: {"description": "Health check successful"},
+        503: {"description": "Service unavailable"}
+    }
+)
+
+# =============================================================================
+# ROLE AND PERMISSION MANAGEMENT ENDPOINTS
+# =============================================================================
+
+# Roles Management
+api_router.include_router(
+    roles.router, 
+    prefix="/roles", 
+    tags=["roles"],
+    responses={
+        404: {"description": "Role not found"},
+        403: {"description": "Access denied"},
         401: {"description": "Authentication required"},
-        400: {"description": "Invalid request"}
+        400: {"description": "Invalid role data"}
+    }
+)
+
+# Permissions Management
+api_router.include_router(
+    permissions.router, 
+    prefix="/permissions", 
+    tags=["permissions"],
+    responses={
+        404: {"description": "Permission not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"},
+        400: {"description": "Invalid permission data"}
     }
 )
 
@@ -164,37 +168,24 @@ api_router.include_router(
 )
 async def api_health_check():
     """API health check endpoint"""
+    
     return {
         "status": "healthy", 
         "service": "dino-multi-venue-platform",
         "version": "2.0.0",
-        "platform_features": {
-            "workspace_onboarding": "Complete workspace creation with venue setup",
-            "role_hierarchy": "SuperAdmin → Admin → Operator with proper isolation",
-            "public_ordering": "QR-based ordering with customer management",
-            "venue_validation": "Operating hours and availability checking",
-            "dashboard_analytics": "Role-specific dashboards and insights"
-        },
         "endpoints": {
             "core_management": [
                 "users", "venues", "workspaces", 
-                "menu", "tables", "orders"
+                "menu", "tables", "orders", "auth"
             ],
-            "platform_features": [
-                "dashboard", "workspace-onboarding", "public-ordering"
-            ],
-            "essential": [
-                "auth"
-            ]
+            "role_management": ["roles", "permissions"]
         },
         "architecture": {
             "multi_tenancy": "Workspace-based isolation",
             "role_based_access": "Three-tier hierarchy with permissions",
-            "public_api": "QR-based ordering without authentication",
-            "real_time": "Live order and table status tracking"
+            "authentication": "JWT-based authentication"
         }
     }
-
 
 # =============================================================================
 # API STATISTICS ENDPOINT
@@ -215,38 +206,24 @@ async def get_api_statistics():
         ]),
         "endpoint_groups": {
             "core_management": 6,
-            "platform_features": 1,
-            "essential": 1,
+            "authentication": 1,
+            "role_management": 2,
             "utility": 2
         },
         "features": {
             "authentication": "JWT-based with role hierarchy",
             "authorization": "Role-based access control (SuperAdmin/Admin/Operator)",
             "multi_tenancy": "Workspace-based isolation",
-            "public_ordering": "QR-based ordering without authentication",
-            "real_time": "Live order and table status tracking",
-            "analytics": "Role-specific dashboard analytics",
-            "venue_management": "Operating hours validation and management"
+            "role_management": "Comprehensive role and permission system"
         },
         "data_models": {
-            "workspaces": "Multi-tenant isolation with subscription management",
-            "users": "Role-based permissions with venue access control",
-            "venues": "Business management with operating hours",
-            "menu": "Categories and items with availability tracking",
-            "tables": "QR code integration with status management",
-            "orders": "Complete lifecycle management with customer tracking",
-            "customers": "Phone-based identification with order history",
-            "analytics": "Role-specific business insights"
+            "workspaces": "Multi-tenant isolation",
+            "users": "Role-based permissions",
+            "venues": "Business management",
+            "menu": "Categories and items",
+            "tables": "QR code integration",
+            "orders": "Complete lifecycle management",
+            "roles": "Permission-based access control",
+            "permissions": "Granular access management"
         }
     }
-
-
-def setup_enhanced_api_router(app):
-    """Setup enhanced API router with documentation"""
-    # Setup API documentation
-    doc_generator = setup_api_documentation(app)
-    
-    # Add the enhanced router to the app
-    app.include_router(api_router, prefix="/api/v1")
-    
-    return doc_generator
