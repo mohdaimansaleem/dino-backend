@@ -689,6 +689,8 @@ class WorkspaceRegistration(BaseSchema):
     # Owner details
     owner_email: EmailStr = Field(..., alias="ownerEmail")
     owner_mobile: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="ownerMobile")
+    owner_phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="ownerPhone")
+    venue_phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="venuePhone")
     owner_first_name: str = Field(..., min_length=1, max_length=50, alias="ownerFirstName")
     owner_last_name: str = Field(..., min_length=1, max_length=50, alias="ownerLastName")
     owner_password: str = Field(..., min_length=8, max_length=128, alias="ownerPassword")
@@ -714,6 +716,14 @@ class WorkspaceRegistration(BaseSchema):
         if not re.search(r"\d", v):
             raise ValueError('Password must contain at least one digit')
         return v
+    
+    def get_owner_mobile_number(self) -> Optional[str]:
+        """Get owner mobile number from any available field"""
+        return self.owner_mobile or self.owner_phone
+    
+    def get_venue_mobile_number(self) -> Optional[str]:
+        """Get venue mobile number from any available field"""
+        return self.venue_mobile or self.venue_phone or self.get_owner_mobile_number()
 
 
 # =============================================================================

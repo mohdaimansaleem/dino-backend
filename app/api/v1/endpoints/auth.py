@@ -97,12 +97,19 @@ async def register_workspace(registration_data: WorkspaceRegistration):
         }
         
         # 2. Create Venue
+        venue_mobile = registration_data.get_venue_mobile_number()
+        if not venue_mobile:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue mobile number is required. Please provide either venueMobile, venuePhone, ownerMobile, or ownerPhone."
+            )
+        
         venue_data = {
             "id": venue_id,
             "name": registration_data.venue_name,
             "description": registration_data.venue_description,
             "location": registration_data.venue_location.dict(),
-            "mobile_number": registration_data.venue_mobile or registration_data.owner_mobile,
+            "mobile_number": venue_mobile,
             "email": registration_data.venue_email or registration_data.owner_email,
             "website": str(registration_data.venue_website) if registration_data.venue_website else None,
             "cuisine_types": [],
@@ -119,10 +126,19 @@ async def register_workspace(registration_data: WorkspaceRegistration):
         
         # 3. Create User (Owner with superadmin role)
         hashed_password = get_password_hash(registration_data.owner_password)
+        
+        # Get mobile number from any available field
+        owner_mobile = registration_data.get_owner_mobile_number()
+        if not owner_mobile:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Owner mobile number is required. Please provide either ownerMobile or ownerPhone."
+            )
+        
         user_data = {
             "id": user_id,
             "email": registration_data.owner_email,
-            "mobile_number": registration_data.owner_mobile,
+            "mobile_number": owner_mobile,
             "first_name": registration_data.owner_first_name,
             "last_name": registration_data.owner_last_name,
             "hashed_password": hashed_password,
