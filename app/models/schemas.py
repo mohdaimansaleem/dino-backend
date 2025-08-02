@@ -2,7 +2,7 @@
 Unified Schemas for Dino Multi-Venue Platform
 Consolidated and comprehensive data models with consistent terminology
 """
-from pydantic import BaseModel, EmailStr, Field, validator, HttpUrl
+from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, date, time
 from enum import Enum
@@ -185,7 +185,7 @@ class TimestampMixin(BaseModel):
 # =============================================================================
 class VenueLocation(BaseModel):
     """Venue location details"""
-    address: str = Field(..., min_length=10, max_length=500)
+    address: str = Field(..., min_length=5, max_length=500)  # Reduced from 10 to 5
     city: str = Field(..., min_length=2, max_length=100)
     state: str = Field(..., min_length=2, max_length=100)
     country: str = Field(..., min_length=2, max_length=100)
@@ -293,11 +293,21 @@ class VenueBase(BaseSchema):
     location: VenueLocation
     mobile_number: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
     email: EmailStr
-    website: Optional[HttpUrl] = None
+    website: Optional[str] = None
     cuisine_types: List[str] = Field(default_factory=list)
     price_range: PriceRange
     subscription_plan: SubscriptionPlan = SubscriptionPlan.BASIC
     subscription_status: SubscriptionStatus = SubscriptionStatus.ACTIVE
+    
+    @validator('website')
+    def validate_venue_website(cls, v):
+        """Validate website URL - allow empty strings"""
+        if v is None or v == "":
+            return None
+        # Basic URL validation
+        if not v.startswith(('http://', 'https://')):
+            v = f"https://{v}"
+        return v
 
 class VenueCreate(VenueBase):
     """Schema for creating venues"""
@@ -309,8 +319,8 @@ class VenueUpdate(BaseSchema):
     description: Optional[str] = Field(None, max_length=1000)
     mobile_number: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
     email: Optional[EmailStr] = None
-    website: Optional[HttpUrl] = None
-    logo_url: Optional[HttpUrl] = None
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
     cuisine_types: Optional[List[str]] = None
     price_range: Optional[PriceRange] = None
     subscription_plan: Optional[SubscriptionPlan] = None
@@ -322,7 +332,7 @@ class Venue(VenueBase, TimestampMixin):
     """Complete venue schema"""
     id: str
     admin_id: Optional[str] = None
-    logo_url: Optional[HttpUrl] = None
+    logo_url: Optional[str] = None
     status: VenueStatus = VenueStatus.ACTIVE
     is_active: bool = Field(default=True)
     rating: float = Field(default=0.0, ge=0, le=5)
@@ -398,7 +408,7 @@ class MenuItem(MenuItemBase, TimestampMixin):
     """Complete menu item schema"""
     id: str
     venue_id: str
-    image_urls: List[HttpUrl] = Field(default_factory=list)
+    image_urls: List[str] = Field(default_factory=list)
     is_available: bool = Field(default=True)
     rating: float = Field(default=0.0, ge=0, le=5)
 
@@ -681,10 +691,21 @@ class WorkspaceRegistration(BaseSchema):
     venue_name: str = Field(..., min_length=1, max_length=100, alias="venueName")
     venue_description: Optional[str] = Field(None, max_length=1000, alias="venueDescription")
     venue_location: VenueLocation = Field(..., alias="venueLocation")
-    venue_mobile: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="venueMobile")
+    venue_phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$", alias="venuePhone")
     venue_email: Optional[EmailStr] = Field(None, alias="venueEmail")
-    venue_website: Optional[HttpUrl] = Field(None, alias="venueWebsite")
+    venue_website: Optional[str] = Field(None, alias="venueWebsite")
     price_range: PriceRange = Field(..., alias="priceRange")
+    venue_type: Optional[str] = Field(None, alias="venueType")
+    
+    @validator('venue_website')
+    def validate_website(cls, v):
+        """Validate website URL - allow empty strings"""
+        if v is None or v == "":
+            return None
+        # Basic URL validation
+        if not v.startswith(('http://', 'https://')):
+            v = f"https://{v}"
+        return v
     
     # Owner details
     owner_email: EmailStr = Field(..., alias="ownerEmail")
@@ -723,7 +744,7 @@ class WorkspaceRegistration(BaseSchema):
     
     def get_venue_mobile_number(self) -> Optional[str]:
         """Get venue mobile number from any available field"""
-        return self.venue_mobile or self.venue_phone or self.get_owner_mobile_number()
+        return self.venue_phone or self.get_owner_mobile_number()
 
 
 # =============================================================================
@@ -922,7 +943,7 @@ class OrderCreationResponse(BaseModel):
 class ImageUploadResponse(BaseSchema):
     """Image upload response"""
     success: bool = True
-    file_url: HttpUrl
+    file_url: str
     file_name: str
     file_size: int
     content_type: str

@@ -3,6 +3,7 @@ Authentication API Endpoints
 """
 from fastapi import APIRouter, HTTPException, status, Depends
 from typing import Dict, Any
+from datetime import datetime
 
 from app.models.schemas import (
     UserCreate, UserLogin, User, UserUpdate, AuthToken, ApiResponse, WorkspaceRegistration
@@ -101,7 +102,7 @@ async def register_workspace(registration_data: WorkspaceRegistration):
         if not venue_mobile:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue mobile number is required. Please provide either venueMobile, venuePhone, ownerMobile, or ownerPhone."
+                detail="Venue mobile number is required. Please provide either venuePhone, ownerMobile, or ownerPhone."
             )
         
         venue_data = {
@@ -111,7 +112,7 @@ async def register_workspace(registration_data: WorkspaceRegistration):
             "location": registration_data.venue_location.dict(),
             "mobile_number": venue_mobile,
             "email": registration_data.venue_email or registration_data.owner_email,
-            "website": str(registration_data.venue_website) if registration_data.venue_website else None,
+            "website": registration_data.venue_website,
             "cuisine_types": [],
             "price_range": registration_data.price_range.value,
             "subscription_plan": "basic",
