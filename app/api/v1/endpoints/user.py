@@ -8,14 +8,14 @@ from fastapi.security import HTTPBearer
 
 from app.models.schemas import (
     UserCreate, User, UserUpdate, UserLogin, AuthToken,
-    ApiResponse, UserAddress, ImageUploadResponse,
+    ApiResponse, ImageUploadResponse,
     PaginatedResponse
 )
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_user_repo, UserRepository
 from app.database.validated_repository import get_validated_user_repo, ValidatedUserRepository
 from app.services.validation_service import get_validation_service
-from app.services.auth_service import auth_service
+from app.core.dependency_injection import get_auth_service
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
 
@@ -159,11 +159,11 @@ async def register_user(user_data: UserCreate):
             validation_service.raise_validation_exception(validation_errors)
         
         # Register user (auth_service will handle password hashing)
-        user = await auth_service.register_user(user_data)
+        user = await get_auth_service().register_user(user_data)
         
         # Login user immediately after registration
         login_data = UserLogin(email=user_data.email, password=user_data.password)
-        token = await auth_service.login_user(login_data)
+        token = await get_auth_service().login_user(login_data)
         
         logger.info(f"User registered successfully: {user_data.email}")
         return token
@@ -185,7 +185,7 @@ async def register_user(user_data: UserCreate):
 async def login_user(login_data: UserLogin):
     """Login user"""
     try:
-        token = await auth_service.login_user(login_data)
+        token = await get_auth_service().login_user(login_data)
         
         # Update last login
         user_repo = get_user_repo()
@@ -248,7 +248,7 @@ async def update_user_profile(
                 )
         
         # Update user
-        updated_user = await auth_service.update_user(current_user['id'], update_data.dict(exclude_unset=True))
+        updated_user = await get_auth_service().update_user(current_user['id'], update_data.dict(exclude_unset=True))
         
         logger.info(f"User profile updated: {current_user['id']}")
         return ApiResponse(
@@ -473,176 +473,10 @@ async def search_users(
 
 
 # =============================================================================
-# ADDRESS MANAGEMENT ENDPOINTS
+# ADDRESS MANAGEMENT ENDPOINTS - TEMPORARILY DISABLED
 # =============================================================================
-
-@router.post("/addresses", 
-             response_model=ApiResponse,
-             summary="Add user address",
-             description="Add a new address for the current user")
-async def add_user_address(
-    address: UserAddress,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Add a new address for the user"""
-    try:
-        user_repo = get_user_repo()
-        
-        # Get current user data
-        user_data = await user_repo.get_by_id(current_user['id'])
-        if not user_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Add address to user's addresses
-        addresses = user_data.get('addresses', [])
-        address_dict = address.dict()
-        address_dict['id'] = f"addr_{len(addresses) + 1}"
-        addresses.append(address_dict)
-        
-        # Update user
-        await user_repo.update(current_user['id'], {"addresses": addresses})
-        
-        logger.info(f"Address added for user: {current_user['id']}")
-        return ApiResponse(
-            success=True,
-            message="Address added successfully",
-            data=address_dict
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error adding address: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to add address"
-        )
-
-
-@router.get("/addresses", 
-            response_model=List[UserAddress],
-            summary="Get user addresses",
-            description="Get all addresses for the current user")
-async def get_user_addresses(current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Get all addresses for the user"""
-    try:
-        user_repo = get_user_repo()
-        user_data = await user_repo.get_by_id(current_user['id'])
-        
-        if user_data and "addresses" in user_data:
-            return [UserAddress(**addr) for addr in user_data["addresses"]]
-        
-        return []
-        
-    except Exception as e:
-        logger.error(f"Error getting addresses: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get addresses"
-        )
-
-
-@router.put("/addresses/{address_id}", 
-            response_model=ApiResponse,
-            summary="Update user address",
-            description="Update a specific address")
-async def update_user_address(
-    address_id: str,
-    address_data: UserAddress,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Update a specific address"""
-    try:
-        user_repo = get_user_repo()
-        
-        # Get current user data
-        user_data = await user_repo.get_by_id(current_user['id'])
-        if not user_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Find and update address
-        addresses = user_data.get('addresses', [])
-        address_found = False
-        
-        for i, addr in enumerate(addresses):
-            if addr.get('id') == address_id:
-                addresses[i] = address_data.dict()
-                addresses[i]['id'] = address_id
-                address_found = True
-                break
-        
-        if not address_found:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Address not found"
-            )
-        
-        # Update user
-        await user_repo.update(current_user['id'], {"addresses": addresses})
-        
-        logger.info(f"Address updated for user: {current_user['id']}")
-        return ApiResponse(
-            success=True,
-            message="Address updated successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating address: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update address"
-        )
-
-
-@router.delete("/addresses/{address_id}", 
-               response_model=ApiResponse,
-               summary="Delete user address",
-               description="Delete a specific address")
-async def delete_user_address(
-    address_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
-):
-    """Delete a specific address"""
-    try:
-        user_repo = get_user_repo()
-        
-        # Get current user data
-        user_data = await user_repo.get_by_id(current_user['id'])
-        if not user_data:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        # Remove address
-        addresses = user_data.get('addresses', [])
-        addresses = [addr for addr in addresses if addr.get('id') != address_id]
-        
-        # Update user
-        await user_repo.update(current_user['id'], {"addresses": addresses})
-        
-        logger.info(f"Address deleted for user: {current_user['id']}")
-        return ApiResponse(
-            success=True,
-            message="Address deleted successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error deleting address: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to delete address"
-        )
+# Note: UserAddress schema was removed during optimization
+# These endpoints can be re-enabled when address management is needed
 
 # =============================================================================
 # SECURITY ENDPOINTS
@@ -659,7 +493,7 @@ async def change_password(
 ):
     """Change user password"""
     try:
-        success = await auth_service.change_password(
+        success = await get_auth_service().change_password(
             current_user['id'], 
             current_password, 
             new_password
@@ -696,7 +530,7 @@ async def deactivate_account(
 ):
     """Deactivate user account"""
     try:
-        success = await auth_service.deactivate_user(current_user['id'])
+        success = await get_auth_service().deactivate_user(current_user['id'])
         
         if success:
             logger.info(f"Account deactivated for user: {current_user['id']}")

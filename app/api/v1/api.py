@@ -118,7 +118,6 @@ api_router.include_router(
 # Health Check Endpoints
 api_router.include_router(
     health.router, 
-    prefix="/health", 
     tags=["health"],
     responses={
         200: {"description": "Health check successful"},
@@ -156,74 +155,3 @@ api_router.include_router(
     }
 )
 
-# =============================================================================
-# API HEALTH CHECK
-# =============================================================================
-
-@api_router.get(
-    "/health",
-    summary="API Health Check",
-    description="Check if the API is healthy and responsive",
-    tags=["health"]
-)
-async def api_health_check():
-    """API health check endpoint"""
-    
-    return {
-        "status": "healthy", 
-        "service": "dino-multi-venue-platform",
-        "version": "2.0.0",
-        "endpoints": {
-            "core_management": [
-                "users", "venues", "workspaces", 
-                "menu", "tables", "orders", "auth"
-            ],
-            "role_management": ["roles", "permissions"]
-        },
-        "architecture": {
-            "multi_tenancy": "Workspace-based isolation",
-            "role_based_access": "Three-tier hierarchy with permissions",
-            "authentication": "JWT-based authentication"
-        }
-    }
-
-# =============================================================================
-# API STATISTICS ENDPOINT
-# =============================================================================
-
-@api_router.get(
-    "/stats",
-    summary="API Statistics",
-    description="Get API usage statistics and endpoint information",
-    tags=["statistics"]
-)
-async def get_api_statistics():
-    """Get API statistics"""
-    return {
-        "total_endpoints": len([
-            route for route in api_router.routes 
-            if hasattr(route, 'methods')
-        ]),
-        "endpoint_groups": {
-            "core_management": 6,
-            "authentication": 1,
-            "role_management": 2,
-            "utility": 2
-        },
-        "features": {
-            "authentication": "JWT-based with role hierarchy",
-            "authorization": "Role-based access control (SuperAdmin/Admin/Operator)",
-            "multi_tenancy": "Workspace-based isolation",
-            "role_management": "Comprehensive role and permission system"
-        },
-        "data_models": {
-            "workspaces": "Multi-tenant isolation",
-            "users": "Role-based permissions",
-            "venues": "Business management",
-            "menu": "Categories and items",
-            "tables": "QR code integration",
-            "orders": "Complete lifecycle management",
-            "roles": "Permission-based access control",
-            "permissions": "Granular access management"
-        }
-    }

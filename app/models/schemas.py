@@ -58,6 +58,8 @@ class OrderStatus(str, Enum):
     PREPARING = "preparing"
     READY = "ready"
     SERVED = "served"
+    DELIVERED = "delivered"
+    OUT_FOR_DELIVERY = "out_for_delivery"
     CANCELLED = "cancelled"
 
 class PaymentStatus(str, Enum):
@@ -142,13 +144,6 @@ class SpiceLevel(str, Enum):
     HOT = "hot"
     EXTRA_HOT = "extra_hot"
 
-class Gender(str, Enum):
-    """Gender options"""
-    MALE = "male"
-    FEMALE = "female"
-    OTHER = "other"
-    PREFER_NOT_TO_SAY = "prefer_not_to_say"
-
 class Priority(str, Enum):
     """Priority levels"""
     LOW = "low"
@@ -208,7 +203,7 @@ class VenueOperatingHours(BaseModel):
     break_end: Optional[time] = Field(None, description="Break end time (optional)")
 
 # =============================================================================
-# WORKSPACE SCHEMAS
+# WORKSPACE SCHEMAS (Optimized)
 # =============================================================================
 class WorkspaceBase(BaseSchema):
     """Base workspace schema"""
@@ -219,33 +214,21 @@ class WorkspaceCreate(WorkspaceBase):
     """Schema for creating workspace"""
     pass
 
-
 class WorkspaceUpdate(BaseSchema):
     """Schema for updating workspace"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     is_active: Optional[bool] = None
 
-
 class Workspace(WorkspaceBase, TimestampMixin):
     """Complete workspace schema"""
     id: str
-    name: str  # Auto-generated unique name
     venue_ids: List[str] = Field(default_factory=list)
+    is_active: bool = Field(default=True)
 
 # =============================================================================
-# USER SCHEMAS
+# USER SCHEMAS (Optimized)
 # =============================================================================
-
-class UserAddress(BaseSchema):
-    """User address schema"""
-    id: Optional[str] = None
-    address_line_1: str = Field(..., min_length=5, max_length=200)
-    city: str = Field(..., min_length=2, max_length=100)
-    state: str = Field(..., min_length=2, max_length=100)
-    postal_code: str = Field(..., min_length=5, max_length=10)
-    country: str = Field(default="India", max_length=100)
-
 class UserBase(BaseSchema):
     """Base user schema"""
     email: EmailStr
@@ -257,9 +240,7 @@ class UserCreate(UserBase):
     """Schema for creating users"""
     password: str = Field(..., min_length=8, max_length=128)
     confirm_password: str = Field(..., min_length=8, max_length=128)
-    role_id: Optional[str] = None  # Role ID for database reference
-    date_of_birth: Optional[date] = None
-    gender: Optional[Gender] = None
+    role_id: Optional[str] = None
 
     @validator('confirm_password')
     def passwords_match(cls, v, values, **kwargs):
@@ -290,16 +271,12 @@ class UserUpdate(BaseSchema):
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
     mobile_number: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
-    date_of_birth: Optional[date] = None
-    gender: Optional[Gender] = None
     is_active: Optional[bool] = None
 
 class User(UserBase, TimestampMixin):
     """Complete user schema"""
     id: str
-    role_id: Optional[str] = None  # Role ID for database reference
-    date_of_birth: Optional[date] = None
-    gender: Optional[Gender] = None
+    role_id: Optional[str] = None
     is_active: bool = Field(default=True)
     is_verified: bool = Field(default=False)
     email_verified: bool = Field(default=False)
@@ -392,10 +369,6 @@ class MenuCategory(MenuCategoryBase, TimestampMixin):
     image_url: Optional[str] = None
     is_active: bool = Field(default=True)
 
-class NutritionalInfo(BaseSchema):
-    """Nutritional information schema"""
-    calories: Optional[int] = Field(None, ge=0)
-
 class MenuItemBase(BaseSchema):
     """Base menu item schema"""
     name: str = Field(..., min_length=1, max_length=100)
@@ -405,7 +378,6 @@ class MenuItemBase(BaseSchema):
     is_vegetarian: bool = Field(default=True)
     spice_level: SpiceLevel = SpiceLevel.MILD
     preparation_time_minutes: int = Field(..., ge=5, le=120)
-    nutritional_info: Optional[NutritionalInfo] = None
 
 class MenuItemCreate(MenuItemBase):
     """Schema for creating menu items"""
@@ -413,14 +385,13 @@ class MenuItemCreate(MenuItemBase):
 
 class MenuItemUpdate(BaseSchema):
     """Schema for updating menu items"""
-    name: Optional[str] = Field(None, min_length=1, max_length=50)
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
     base_price: Optional[float] = Field(None, gt=0)
     category_id: Optional[str] = None
     is_vegetarian: Optional[bool] = None
     spice_level: Optional[SpiceLevel] = None
     preparation_time_minutes: Optional[int] = Field(None, ge=5, le=120)
-    nutritional_info: Optional[NutritionalInfo] = None
     is_available: Optional[bool] = None
 
 class MenuItem(MenuItemBase, TimestampMixin):
@@ -650,9 +621,22 @@ class PermissionBase(BaseSchema):
     """Base permission schema"""
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., max_length=500)
-    resource: str = Field(..., pattern="^(workspace|venue|menu|order|user|analytics|table)$")
-    action: str = Field(..., pattern="^(create|read|update|delete|manage)$")
-    scope: str = Field(..., pattern="^(own|venue|workspace|all)$")
+    resource: str = Field(..., pattern="^(workspace|venue|menu|order|user|analytics|table|dashboard|cafe|orders|tables|users|settings|qr|reports|notifications|profile|password)$")
+    action: str = Field(..., pattern="^(create|read|update|delete|manage|view|activate|deactivate|switch|generate|print)$")
+    scope: str = Field(..., pattern="^(own|venue|workspace|all|system)$")
+    
+    @validator('name')
+    def validate_name_format(cls, v):
+        """Validate permission name format - allow both dot and colon separators"""
+        if '.' in v or ':' in v:
+            # Split by either . or :
+            parts = v.replace(':', '.').split('.')
+            if len(parts) >= 2:
+                return v
+        # If no separator, check if it follows resource.action format
+        if '.' not in v and ':' not in v:
+            raise ValueError('Name must follow resource.action format (e.g., venue.read)')
+        return v
 
 class PermissionCreate(PermissionBase):
     """Schema for creating permissions"""
@@ -711,7 +695,7 @@ class WorkspaceRegistration(BaseSchema):
     confirm_password: str = Field(..., min_length=8, max_length=128, alias="confirmPassword")
     
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
     
     @validator('confirm_password')
     def passwords_match(cls, v, values, **kwargs):
@@ -782,35 +766,14 @@ class OrderValidationResponse(BaseModel):
 # ANALYTICS SCHEMAS
 # =============================================================================
 
-class PopularItem(BaseSchema):
-    """Popular item analytics"""
-    menu_item_id: str
-    menu_item_name: str
-    order_count: int
-    revenue: float
-
-
-class RevenueData(BaseSchema):
-    """Revenue data analytics"""
-    date: str
-    revenue: float
-    orders: int
-
-
-class StatusData(BaseSchema):
-    """Status data analytics"""
-    status: OrderStatus
-    count: int
-
-
 class SalesAnalytics(BaseSchema):
-    """Sales analytics schema"""
+    """Consolidated sales analytics schema"""
     total_revenue: float
     total_orders: int
     average_order_value: float
-    popular_items: List[PopularItem]
-    revenue_by_day: List[RevenueData]
-    orders_by_status: List[StatusData]
+    popular_items: List[Dict[str, Any]] = Field(default_factory=list)
+    revenue_by_day: List[Dict[str, Any]] = Field(default_factory=list)
+    orders_by_status: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class VenueAnalytics(BaseModel):

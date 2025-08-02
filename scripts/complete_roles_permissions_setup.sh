@@ -5,7 +5,7 @@
 # =============================================================================
 # This script creates the comprehensive roles and permissions system based on 
 # frontend analysis with structured format:
-# 1. Creates 40+ permissions with structured naming (resource.action format)
+# 1. Creates 35+ permissions with structured naming (resource.action format)
 #    across all frontend modules (dashboard, workspace, venue, menu, order, user, table, analytics, etc.)
 # 2. Creates 3 system roles (superadmin, admin, operator)
 # 3. Maps permissions to roles with proper hierarchy and access levels
@@ -251,28 +251,23 @@ create_all_permissions() {
     # Initialize permission IDs file
     > "$PERMISSION_IDS_FILE"
     
-    info "Creating permissions for all frontend modules and components..."
+    info "Creating permissions using API-compliant resource and action names..."
     
-    # Define comprehensive permission set based on frontend analysis
-    # This includes all permissions used across the frontend components
+    # Define permission set based on API validation constraints
+    # Only using allowed resource names: workspace, venue, menu, order, user, analytics, table
+    # Only using allowed action names: create, read, update, delete, view, manage
     local permissions=(
-        # Dashboard permissions
-        '{"name":"dashboard.view","description":"View dashboard","resource":"dashboard","action":"view","scope":"venue"}'
-        
         # Workspace permissions
         '{"name":"workspace.view","description":"View workspace information","resource":"workspace","action":"view","scope":"workspace"}'
         '{"name":"workspace.create","description":"Create new workspaces","resource":"workspace","action":"create","scope":"system"}'
         '{"name":"workspace.update","description":"Update workspace settings","resource":"workspace","action":"update","scope":"workspace"}'
         '{"name":"workspace.delete","description":"Delete workspaces","resource":"workspace","action":"delete","scope":"workspace"}'
-        '{"name":"workspace.switch","description":"Switch between workspaces","resource":"workspace","action":"switch","scope":"system"}'
+        '{"name":"workspace.manage","description":"Full workspace management","resource":"workspace","action":"manage","scope":"workspace"}'
         
-        # Venue/Cafe permissions (called 'cafe' in frontend)
-        '{"name":"cafe.view_all","description":"View all cafes across workspaces","resource":"cafe","action":"view_all","scope":"system"}'
-        '{"name":"cafe.activate","description":"Activate cafes","resource":"cafe","action":"activate","scope":"workspace"}'
-        '{"name":"cafe.deactivate","description":"Deactivate cafes","resource":"cafe","action":"deactivate","scope":"workspace"}'
-        '{"name":"cafe.switch","description":"Switch between cafes","resource":"cafe","action":"switch","scope":"workspace"}'
+        # Venue permissions (covers cafe/venue functionality)
+        '{"name":"venue.view","description":"View venue information","resource":"venue","action":"view","scope":"venue"}'
         '{"name":"venue.create","description":"Create new venues","resource":"venue","action":"create","scope":"workspace"}'
-        '{"name":"venue.read","description":"View venue information","resource":"venue","action":"read","scope":"venue"}'
+        '{"name":"venue.read","description":"Read venue details","resource":"venue","action":"read","scope":"venue"}'
         '{"name":"venue.update","description":"Update venue information","resource":"venue","action":"update","scope":"venue"}'
         '{"name":"venue.delete","description":"Delete venues","resource":"venue","action":"delete","scope":"venue"}'
         '{"name":"venue.manage","description":"Full venue management","resource":"venue","action":"manage","scope":"venue"}'
@@ -280,71 +275,39 @@ create_all_permissions() {
         # Menu permissions
         '{"name":"menu.view","description":"View menu items","resource":"menu","action":"view","scope":"venue"}'
         '{"name":"menu.create","description":"Create menu items","resource":"menu","action":"create","scope":"venue"}'
+        '{"name":"menu.read","description":"Read menu details","resource":"menu","action":"read","scope":"venue"}'
         '{"name":"menu.update","description":"Update menu items","resource":"menu","action":"update","scope":"venue"}'
         '{"name":"menu.delete","description":"Delete menu items","resource":"menu","action":"delete","scope":"venue"}'
+        '{"name":"menu.manage","description":"Full menu management","resource":"menu","action":"manage","scope":"venue"}'
         
         # Order permissions
-        '{"name":"orders.view","description":"View orders","resource":"orders","action":"view","scope":"venue"}'
-        '{"name":"orders.create","description":"Create orders","resource":"orders","action":"create","scope":"venue"}'
-        '{"name":"orders.update","description":"Update order status","resource":"orders","action":"update","scope":"venue"}'
-        '{"name":"orders.delete","description":"Delete orders","resource":"orders","action":"delete","scope":"venue"}'
+        '{"name":"order.view","description":"View orders","resource":"order","action":"view","scope":"venue"}'
+        '{"name":"order.create","description":"Create orders","resource":"order","action":"create","scope":"venue"}'
+        '{"name":"order.read","description":"Read order details","resource":"order","action":"read","scope":"venue"}'
+        '{"name":"order.update","description":"Update order status","resource":"order","action":"update","scope":"venue"}'
+        '{"name":"order.delete","description":"Delete orders","resource":"order","action":"delete","scope":"venue"}'
+        '{"name":"order.manage","description":"Full order management","resource":"order","action":"manage","scope":"venue"}'
         
         # Table permissions
-        '{"name":"tables.view","description":"View tables","resource":"tables","action":"view","scope":"venue"}'
-        '{"name":"tables.create","description":"Create tables","resource":"tables","action":"create","scope":"venue"}'
-        '{"name":"tables.update","description":"Update tables","resource":"tables","action":"update","scope":"venue"}'
-        '{"name":"tables.delete","description":"Delete tables","resource":"tables","action":"delete","scope":"venue"}'
+        '{"name":"table.view","description":"View tables","resource":"table","action":"view","scope":"venue"}'
+        '{"name":"table.create","description":"Create tables","resource":"table","action":"create","scope":"venue"}'
+        '{"name":"table.read","description":"Read table details","resource":"table","action":"read","scope":"venue"}'
+        '{"name":"table.update","description":"Update tables","resource":"table","action":"update","scope":"venue"}'
+        '{"name":"table.delete","description":"Delete tables","resource":"table","action":"delete","scope":"venue"}'
+        '{"name":"table.manage","description":"Full table management","resource":"table","action":"manage","scope":"venue"}'
         
         # User management permissions
-        '{"name":"users.view","description":"View users","resource":"users","action":"view","scope":"workspace"}'
-        '{"name":"users.create","description":"Create users","resource":"users","action":"create","scope":"workspace"}'
-        '{"name":"users.update","description":"Update users","resource":"users","action":"update","scope":"workspace"}'
-        '{"name":"users.delete","description":"Delete users","resource":"users","action":"delete","scope":"workspace"}'
-        
-        # Settings permissions
-        '{"name":"settings.view","description":"View settings","resource":"settings","action":"view","scope":"venue"}'
-        '{"name":"settings.update","description":"Update settings","resource":"settings","action":"update","scope":"venue"}'
+        '{"name":"user.view","description":"View users","resource":"user","action":"view","scope":"workspace"}'
+        '{"name":"user.create","description":"Create users","resource":"user","action":"create","scope":"workspace"}'
+        '{"name":"user.read","description":"Read user details","resource":"user","action":"read","scope":"workspace"}'
+        '{"name":"user.update","description":"Update users","resource":"user","action":"update","scope":"workspace"}'
+        '{"name":"user.delete","description":"Delete users","resource":"user","action":"delete","scope":"workspace"}'
+        '{"name":"user.manage","description":"Full user management","resource":"user","action":"manage","scope":"workspace"}'
         
         # Analytics permissions
-        '{"name":"analytics.read","description":"View analytics and reports","resource":"analytics","action":"read","scope":"venue"}'
-        
-        # Additional frontend-specific permissions
-        '{"name":"qr.generate","description":"Generate QR codes for tables","resource":"qr","action":"generate","scope":"venue"}'
-        '{"name":"qr.print","description":"Print QR codes","resource":"qr","action":"print","scope":"venue"}'
-        '{"name":"reports.view","description":"View reports and analytics","resource":"reports","action":"view","scope":"venue"}'
-        '{"name":"notifications.manage","description":"Manage notification settings","resource":"notifications","action":"manage","scope":"venue"}'
-        '{"name":"profile.update","description":"Update user profile","resource":"profile","action":"update","scope":"user"}'
-        '{"name":"password.update","description":"Update user password","resource":"password","action":"update","scope":"user"}'
-        
-        # Legacy permissions for backward compatibility (using colon format)
-        '{"name":"dashboard:view","description":"View dashboard ","resource":"dashboard","action":"view","scope":"venue"}'
-        '{"name":"workspace:view","description":"View workspace ","resource":"workspace","action":"view","scope":"workspace"}'
-        '{"name":"workspace:update","description":"Update workspace ","resource":"workspace","action":"update","scope":"workspace"}'
-        '{"name":"workspace:create","description":"Create workspace ","resource":"workspace","action":"create","scope":"system"}'
-        '{"name":"workspace:delete","description":"Delete workspace ","resource":"workspace","action":"delete","scope":"workspace"}'
-        '{"name":"workspace:switch","description":"Switch workspace ","resource":"workspace","action":"switch","scope":"system"}'
-        '{"name":"cafe:view_all","description":"View all cafes ","resource":"cafe","action":"view_all","scope":"system"}'
-        '{"name":"cafe:activate","description":"Activate cafe ","resource":"cafe","action":"activate","scope":"workspace"}'
-        '{"name":"cafe:deactivate","description":"Deactivate cafe ","resource":"cafe","action":"deactivate","scope":"workspace"}'
-        '{"name":"cafe:switch","description":"Switch cafe ","resource":"cafe","action":"switch","scope":"workspace"}'
-        '{"name":"menu:view","description":"View menu ","resource":"menu","action":"view","scope":"venue"}'
-        '{"name":"menu:create","description":"Create menu ","resource":"menu","action":"create","scope":"venue"}'
-        '{"name":"menu:update","description":"Update menu ","resource":"menu","action":"update","scope":"venue"}'
-        '{"name":"menu:delete","description":"Delete menu ","resource":"menu","action":"delete","scope":"venue"}'
-        '{"name":"orders:view","description":"View orders ","resource":"orders","action":"view","scope":"venue"}'
-        '{"name":"orders:create","description":"Create orders ","resource":"orders","action":"create","scope":"venue"}'
-        '{"name":"orders:update","description":"Update orders ","resource":"orders","action":"update","scope":"venue"}'
-        '{"name":"orders:delete","description":"Delete orders ","resource":"orders","action":"delete","scope":"venue"}'
-        '{"name":"tables:view","description":"View tables ","resource":"tables","action":"view","scope":"venue"}'
-        '{"name":"tables:create","description":"Create tables ","resource":"tables","action":"create","scope":"venue"}'
-        '{"name":"tables:update","description":"Update tables ","resource":"tables","action":"update","scope":"venue"}'
-        '{"name":"tables:delete","description":"Delete tables ","resource":"tables","action":"delete","scope":"venue"}'
-        '{"name":"users:view","description":"View users ","resource":"users","action":"view","scope":"workspace"}'
-        '{"name":"users:create","description":"Create users ","resource":"users","action":"create","scope":"workspace"}'
-        '{"name":"users:update","description":"Update users ","resource":"users","action":"update","scope":"workspace"}'
-        '{"name":"users:delete","description":"Delete users ","resource":"users","action":"delete","scope":"workspace"}'
-        '{"name":"settings:view","description":"View settings ","resource":"settings","action":"view","scope":"venue"}'
-        '{"name":"settings:update","description":"Update settings ","resource":"settings","action":"update","scope":"venue"}'
+        '{"name":"analytics.view","description":"View analytics dashboard","resource":"analytics","action":"view","scope":"venue"}'
+        '{"name":"analytics.read","description":"Read analytics and reports","resource":"analytics","action":"read","scope":"venue"}'
+        '{"name":"analytics.manage","description":"Manage analytics settings","resource":"analytics","action":"manage","scope":"venue"}'
     )
     
     local created_count=0
@@ -711,46 +674,26 @@ map_admin_permissions() {
     info "👑 Mapping Admin permissions..."
     
     local admin_permissions=(
-        # Dashboard
-        "dashboard.view" "dashboard:view"
-        
         # Workspace permissions
-        "workspace.view" "workspace.update" "workspace:view" "workspace:update"
+        "workspace.view" "workspace.create" "workspace.update" "workspace.delete" "workspace.manage"
         
         # Venue Management (Full)
-        "venue.create" "venue.read" "venue.update" "venue.delete" "venue.manage"
-        "cafe.activate" "cafe.deactivate" "cafe.switch" "cafe:activate" "cafe:deactivate" "cafe:switch"
+        "venue.view" "venue.create" "venue.read" "venue.update" "venue.delete" "venue.manage"
         
         # Menu Management (Full)
-        "menu.view" "menu.create" "menu.update" "menu.delete"
-        "menu:view" "menu:create" "menu:update" "menu:delete"
+        "menu.view" "menu.create" "menu.read" "menu.update" "menu.delete" "menu.manage"
         
         # Order Management (Full)
-        "orders.view" "orders.create" "orders.update" "orders.delete"
-        "orders:view" "orders:create" "orders:update" "orders:delete"
+        "order.view" "order.create" "order.read" "order.update" "order.delete" "order.manage"
         
         # User Management (Full)
-        "users.view" "users.create" "users.update" "users.delete"
-        "users:view" "users:create" "users:update" "users:delete"
+        "user.view" "user.create" "user.read" "user.update" "user.delete" "user.manage"
         
         # Table Management (Full)
-        "tables.view" "tables.create" "tables.update" "tables.delete"
-        "tables:view" "tables:create" "tables:update" "tables:delete"
-        
-        # Settings
-        "settings.view" "settings.update" "settings:view" "settings:update"
+        "table.view" "table.create" "table.read" "table.update" "table.delete" "table.manage"
         
         # Analytics
-        "analytics.read" "reports.view"
-        
-        # QR Codes
-        "qr.generate" "qr.print"
-        
-        # Notifications
-        "notifications.manage"
-        
-        # Profile
-        "profile.update" "password.update"
+        "analytics.view" "analytics.read" "analytics.manage"
     )
     
     assign_permissions_to_role "admin" "${admin_permissions[@]}"
@@ -761,39 +704,26 @@ map_operator_permissions() {
     info "🔧 Mapping Operator permissions..."
     
     local operator_permissions=(
-        # Dashboard (View only)
-        "dashboard.view" "dashboard:view"
-        
         # Workspace (View only)
-        "workspace.view" "workspace:view"
+        "workspace.view"
         
         # Venue Management (View only)
-        "venue.read"
+        "venue.view" "venue.read"
         
         # Menu Management (View only)
-        "menu.view" "menu:view"
+        "menu.view" "menu.read"
         
         # Order Management (Full operational access)
-        "orders.view" "orders.create" "orders.update"
-        "orders:view" "orders:create" "orders:update"
+        "order.view" "order.create" "order.read" "order.update"
         
         # User Management (View only)
-        "users.view" "users:view"
+        "user.view" "user.read"
         
         # Table Management (View and Update)
-        "tables.view" "tables.update" "tables:view" "tables:update"
-        
-        # Settings (View only)
-        "settings.view" "settings:view"
+        "table.view" "table.read" "table.update"
         
         # Analytics (View only)
-        "analytics.read" "reports.view"
-        
-        # QR Codes (View only)
-        "qr.generate"
-        
-        # Profile
-        "profile.update" "password.update"
+        "analytics.view" "analytics.read"
     )
     
     assign_permissions_to_role "operator" "${operator_permissions[@]}"
@@ -961,8 +891,8 @@ show_usage() {
     echo "  FORCE_RECREATE         Set to 'true' to force recreate"
     echo ""
     echo "What this script does:"
-    echo "  ✅ Creates comprehensive permission system (60+ permissions based on frontend analysis)"
-    echo "  ✅ Includes both dot notation (resource.action) and colon notation (resource:action)"
+    echo "  ✅ Creates comprehensive permission system (35+ permissions based on API constraints)"
+    echo "  ✅ Uses proper dot notation (resource.action) format as required by API"
     echo "  ✅ Creates role hierarchy (3 roles: SuperAdmin → Admin → Operator)"
     echo "  ✅ Maps permissions to roles with proper access levels"
     echo "  ✅ Handles existing data gracefully"

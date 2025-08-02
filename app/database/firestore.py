@@ -75,7 +75,7 @@ class FirestoreRepository(EnhancedLoggerMixin):
         return prepared_data
     
     @log_function_call(include_args=False, include_result=False)
-    async def create(self, data: Dict[str, Any], doc_id: Optional[str] = None) -> str:
+    async def create(self, data: Dict[str, Any], doc_id: Optional[str] = None) -> Dict[str, Any]:
         """Create a new document"""
         start_time = time.time()
         self._ensure_collection()
@@ -122,7 +122,9 @@ class FirestoreRepository(EnhancedLoggerMixin):
                              doc_id=created_id,
                              duration_ms=duration_ms)
             
-            return created_id
+            # Return the created document with ID
+            data['id'] = created_id
+            return data
             
         except Exception as e:
             duration_ms = (time.time() - start_time) * 1000
@@ -224,7 +226,7 @@ class FirestoreRepository(EnhancedLoggerMixin):
                           duration_ms=duration_ms)
             raise
     
-    async def update(self, doc_id: str, data: Dict[str, Any]) -> bool:
+    async def update(self, doc_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update document by ID"""
         self._ensure_collection()
         
@@ -240,7 +242,10 @@ class FirestoreRepository(EnhancedLoggerMixin):
             self.log_operation("update_document", 
                              collection=self.collection_name, 
                              doc_id=doc_id)
-            return True
+            
+            # Get and return the updated document
+            updated_doc = await self.get_by_id(doc_id)
+            return updated_doc
         except Exception as e:
             self.log_error(e, "update_document", 
                           collection=self.collection_name, 
@@ -358,6 +363,126 @@ class FirestoreRepository(EnhancedLoggerMixin):
             self.log_error(e, "check_document_exists", 
                           collection=self.collection_name, 
                           doc_id=doc_id)
+            raise
+    
+    async def update_batch(self, updates: List[tuple]) -> bool:
+        """Batch update multiple documents"""
+        self._ensure_collection()
+        
+        try:
+            # Firestore batch operations
+            batch = self.db.batch()
+            
+            for doc_id, update_data in updates:
+                # Prepare data for Firestore
+                update_data = self._prepare_data_for_firestore(update_data)
+                update_data['updated_at'] = datetime.utcnow()
+                
+                doc_ref = self.collection.document(doc_id)
+                batch.update(doc_ref, update_data)
+            
+            # Commit batch
+            batch.commit()
+            
+            self.log_operation("batch_update", 
+                             collection=self.collection_name, 
+                             count=len(updates))
+            return True
+            
+        except Exception as e:
+            self.log_error(e, "batch_update", 
+                          collection=self.collection_name, 
+                          count=len(updates))
+            raise
+    
+    async def create_batch(self, items_data: List[Dict[str, Any]]) -> List[str]:
+        """Batch create multiple documents"""
+        self._ensure_collection()
+        
+        try:
+            # Firestore batch operations
+            batch = self.db.batch()
+            created_ids = []
+            
+            for data in items_data:
+                # Prepare data for Firestore
+                data = self._prepare_data_for_firestore(data)
+                data['created_at'] = datetime.utcnow()
+                data['updated_at'] = datetime.utcnow()
+                
+                doc_ref = self.collection.document()
+                data['id'] = doc_ref.id
+                batch.set(doc_ref, data)
+                created_ids.append(doc_ref.id)
+            
+            # Commit batch
+            batch.commit()
+            
+            self.log_operation("batch_create", 
+                             collection=self.collection_name, 
+                             count=len(created_ids))
+            return created_ids
+            
+        except Exception as e:
+            self.log_error(e, "batch_create", 
+                          collection=self.collection_name, 
+                          count=len(items_data))
+            raise
+    
+    async def search_text(self, 
+                         search_fields: List[str],
+                         search_term: str,
+                         additional_filters: Optional[List[tuple]] = None,
+                         limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Search for documents containing the search term in specified fields
+        Note: This is a basic implementation. For production, consider using 
+        Firestore's full-text search or Algolia integration.
+        """
+        self._ensure_collection()
+        
+        try:
+            # Get all documents (or apply additional filters first)
+            if additional_filters:
+                all_docs = await self.query(additional_filters, limit=limit)
+            else:
+                all_docs = await self.get_all(limit=limit)
+            
+            # Filter documents that contain the search term in any of the specified fields
+            search_term_lower = search_term.lower()
+            matching_docs = []
+            
+            for doc in all_docs:
+                for field in search_fields:
+                    field_value = doc.get(field, '')
+                    
+                    # Handle different field types
+                    if isinstance(field_value, str):
+                        if search_term_lower in field_value.lower():
+                            matching_docs.append(doc)
+                            break
+                    elif isinstance(field_value, list):
+                        # Search in array fields (like cuisine_types)
+                        for item in field_value:
+                            if isinstance(item, str) and search_term_lower in item.lower():
+                                matching_docs.append(doc)
+                                break
+                        if doc in matching_docs:
+                            break
+            
+            self.log_operation("search_text", 
+                             collection=self.collection_name, 
+                             search_fields=search_fields,
+                             search_term=search_term,
+                             results_count=len(matching_docs))
+            
+            return matching_docs
+            
+        except Exception as e:
+            self.log_error(e, "search_text", 
+                          collection=self.collection_name, 
+                          search_fields=search_fields,
+                          search_term=search_term)
             raise
 
 

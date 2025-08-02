@@ -39,6 +39,15 @@ except Exception as e:
         CORS_ALLOW_HEADERS = ["*"]
     settings = MinimalSettings()
 
+# Initialize dependency injection
+try:
+    from app.core.dependency_injection import initialize_di, check_services_health
+    logger.info("✅ Dependency injection initialized successfully")
+    di_available = True
+except Exception as e:
+    logger.warning(f"⚠️ Dependency injection initialization failed: {e}")
+    di_available = False
+
 try:
     from app.api.v1.api import api_router
     logger.info("✅ API router loaded successfully")
@@ -136,13 +145,24 @@ async def health_check():
         "project_id": getattr(settings, 'GCP_PROJECT_ID', 'unknown'),
         "database_id": getattr(settings, 'DATABASE_NAME', 'unknown'),
         "api_router": "available" if api_router_available else "unavailable",
+        "dependency_injection": "available" if di_available else "unavailable",
         "features": {
             "authentication": "JWT-based",
             "authorization": "Role-based (SuperAdmin/Admin/Operator)",
             "multi_tenancy": "Workspace-based isolation",
-            "role_management": "Comprehensive role and permission system"
+            "role_management": "Comprehensive role and permission system",
+            "performance_optimization": "Caching and query optimization",
+            "repository_pattern": "Centralized with caching"
         }
     }
+    
+    # Add DI service health if available
+    if di_available:
+        try:
+            services_health = check_services_health()
+            health_status["services"] = services_health
+        except Exception as e:
+            health_status["services_error"] = str(e)
     
     return health_status
 
@@ -161,6 +181,29 @@ async def readiness_check():
 async def liveness_check():
     """Liveness check for Cloud Run"""
     return {"status": "alive", "service": "dino-api"}
+
+
+@app.get("/metrics")
+async def performance_metrics():
+    """Performance metrics endpoint"""
+    try:
+        from app.services.performance_service import get_performance_service
+        performance_service = get_performance_service()
+        metrics = performance_service.get_performance_metrics()
+        
+        return {
+            "status": "success",
+            "service": "dino-api",
+            "metrics": metrics,
+            "timestamp": os.environ.get("STARTUP_TIME", "unknown")
+        }
+    except Exception as e:
+        logger.error(f"Failed to get performance metrics: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "service": "dino-api"
+        }
 
 
 # =============================================================================

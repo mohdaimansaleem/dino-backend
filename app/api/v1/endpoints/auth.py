@@ -9,7 +9,7 @@ from app.models.schemas import (
 )
 from pydantic import BaseModel
 from app.services.validation_service import get_validation_service
-from app.services.auth_service import auth_service
+from app.core.dependency_injection import get_auth_service
 from app.core.security import get_current_user, get_current_user_id
 
 
@@ -226,97 +226,21 @@ async def register_workspace(registration_data: WorkspaceRegistration):
 @router.post("/login", response_model=AuthToken)
 async def login_user(login_data: UserLogin):
     """Login user and return JWT token"""
-    from app.core.logging_config import get_logger, set_request_context
-    from app.core.logging_middleware import business_logger
-    import time
-    
-    start_time = time.time()
-    logger = get_logger(__name__)
-    
-    # Set operation context
-    set_request_context(operation="user_login")
-    
     try:
-        logger.info("Login attempt started", 
-                   email=login_data.email,
-                   remember_me=login_data.remember_me)
-        
-        business_logger.log_business_operation(
-            operation="login_attempt",
-            entity_type="user",
-            details={"email": login_data.email}
-        )
-        
-        token = await auth_service.login_user(login_data)
-        
-        duration_ms = (time.time() - start_time) * 1000
-        
-        # Log successful login for monitoring
-        logger.info("User login successful", 
-                   user_email=login_data.email,
-                   user_id=token.user.id,
-                   token_expires_in=token.expires_in,
-                   duration_ms=duration_ms,
-                   user_role=getattr(token.user, 'role_id', 'unknown'))
-        
-        business_logger.log_business_operation(
-            operation="login_success",
-            entity_type="user",
-            entity_id=token.user.id,
-            user_id=token.user.id,
-            details={
-                "email": login_data.email,
-                "duration_ms": duration_ms
-            }
-        )
-        
+        token = await get_auth_service().login_user(login_data)
         return token
         
-    except HTTPException as he:
-        duration_ms = (time.time() - start_time) * 1000
-        
-        logger.warning("Login failed with HTTP exception", 
-                      user_email=login_data.email,
-                      status_code=he.status_code,
-                      detail=he.detail,
-                      duration_ms=duration_ms)
-        
-        business_logger.log_business_operation(
-            operation="login_failed",
-            entity_type="user",
-            details={
-                "email": login_data.email,
-                "reason": he.detail,
-                "status_code": he.status_code,
-                "duration_ms": duration_ms
-            }
-        )
-        
+    except HTTPException:
         raise
         
     except Exception as e:
-        duration_ms = (time.time() - start_time) * 1000
-        
-        logger.error("Login failed with unexpected error", 
-                    user_email=login_data.email,
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                    duration_ms=duration_ms,
-                    exc_info=True)
-        
-        business_logger.log_business_operation(
-            operation="login_error",
-            entity_type="user",
-            details={
-                "email": login_data.email,
-                "error": str(e),
-                "duration_ms": duration_ms
-            }
-        )
+        from app.core.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Login failed with unexpected error: {e}", exc_info=True)
         
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Login failed: {str(e)}"
+            detail="Login failed"
         )
 
 @router.get("/me", response_model=User)
@@ -334,7 +258,7 @@ async def update_current_user(
         # Convert to dict and remove None values
         update_data = user_update.dict(exclude_unset=True)
         
-        user = await auth_service.update_user(current_user_id, update_data)
+        user = await get_auth_service().update_user(current_user_id, update_data)
         return ApiResponse(
             success=True,
             message="User updated successfully",
@@ -356,7 +280,7 @@ async def change_password(
 ):
     """Change user password"""
     try:
-        await auth_service.change_password(current_user_id, current_password, new_password)
+        await get_auth_service().change_password(current_user_id, current_password, new_password)
         return ApiResponse(
             success=True,
             message="Password changed successfully"
@@ -374,7 +298,7 @@ async def change_password(
 async def refresh_token(request_data: RefreshTokenRequest):
     """Refresh JWT token"""
     try:
-        token = await auth_service.refresh_token(request_data.refresh_token)
+        token = await get_auth_service().refresh_token(request_data.refresh_token)
         return token
     except HTTPException:
         raise
@@ -414,7 +338,8 @@ async def get_user_permissions(current_user: Dict[str, Any] = Depends(get_curren
         permissions = role.get('permission_ids', [])
         
         # Get detailed permission information
-        from app.api.v1.endpoints.permissions import perm_repo
+        from app.database.firestore import get_permission_repo
+        perm_repo = get_permission_repo()
         detailed_permissions = []
         
         for perm_id in permissions:
@@ -493,7 +418,8 @@ async def refresh_user_permissions(current_user: Dict[str, Any] = Depends(get_cu
         permissions = role.get('permission_ids', [])
         
         # Get detailed permission information
-        from app.api.v1.endpoints.permissions import perm_repo
+        from app.database.firestore import get_permission_repo
+        perm_repo = get_permission_repo()
         detailed_permissions = []
         
         for perm_id in permissions:
