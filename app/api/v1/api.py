@@ -1,4 +1,3 @@
-
 """
 
 Dino Multi-Venue Platform - Main API Router
@@ -47,7 +46,9 @@ from app.api.v1.endpoints import (
 
   venue_status,
 
-  table_areas
+  table_areas,
+
+  user_data
 
 )
 
@@ -224,6 +225,30 @@ api_router.include_router(
     400: {"description": "Invalid credentials"},
 
     409: {"description": "User already exists"}
+
+  }
+
+)
+
+
+
+# User Data Management
+
+api_router.include_router(
+
+  user_data.router, 
+
+  prefix="/auth", 
+
+  tags=["user-data"],
+
+  responses={
+
+    404: {"description": "User data not found"},
+
+    403: {"description": "Access denied"},
+
+    401: {"description": "Authentication required"}
 
   }
 
@@ -420,3 +445,6 @@ api_router.include_router(
   }
 
 )
+
+
+
