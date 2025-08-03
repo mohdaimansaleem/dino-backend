@@ -1,4 +1,3 @@
-
 """
 
 Firestore Database Connection and Repository Classes
@@ -1261,7 +1260,7 @@ class MenuItemRepository(FirestoreRepository):
 
     """Get menu items by venue ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1269,7 +1268,7 @@ class MenuItemRepository(FirestoreRepository):
 
     """Get menu items by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="order")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1283,7 +1282,7 @@ class MenuItemRepository(FirestoreRepository):
 
       ("category", "==", category)
 
-    ], order_by="order")
+    ])
 
 
 
@@ -1301,7 +1300,7 @@ class MenuCategoryRepository(FirestoreRepository):
 
     """Get menu categories by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="order")
+    return await self.query([("venue_id", "==", venue_id)])
 
 
 
@@ -1319,7 +1318,7 @@ class TableRepository(FirestoreRepository):
 
     """Get tables by venue ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="table_number")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1327,7 +1326,7 @@ class TableRepository(FirestoreRepository):
 
     """Get tables by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="table_number")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1385,7 +1384,7 @@ class OrderRepository(FirestoreRepository):
 
     """Get orders by venue ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
+    return await self.query([("venue_id", "==", venue_id)], limit=limit)
 
    
 
@@ -1393,7 +1392,7 @@ class OrderRepository(FirestoreRepository):
 
     """Get recent orders"""
 
-    return await self.query([], order_by="created_at", limit=limit)
+    return await self.query([], limit=limit)
 
    
 
@@ -1401,7 +1400,7 @@ class OrderRepository(FirestoreRepository):
 
     """Get orders by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
+    return await self.query([("venue_id", "==", venue_id)], limit=limit)
 
    
 
@@ -1423,7 +1422,7 @@ class OrderRepository(FirestoreRepository):
 
       ("status", "==", status)
 
-    ], order_by="created_at")
+    ])
 
 
 
@@ -1451,7 +1450,7 @@ class AnalyticsRepository(FirestoreRepository):
 
       ("date", "<=", end_date)
 
-    ], order_by="date")
+    ])
 
 
 
@@ -1567,7 +1566,7 @@ class ReviewRepository(FirestoreRepository):
 
     """Get reviews by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1603,7 +1602,7 @@ class NotificationRepository(FirestoreRepository):
 
     """Get notifications by recipient ID"""
 
-    return await self.query([("recipient_id", "==", recipient_id)], order_by="created_at")
+    return await self.query([("recipient_id", "==", recipient_id)])
 
    
 
@@ -1635,7 +1634,7 @@ class TransactionRepository(FirestoreRepository):
 
     """Get transactions by cafe ID"""
 
-    return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+    return await self.query([("venue_id", "==", venue_id)])
 
    
 
@@ -1832,7 +1831,3 @@ def get_analytics_repo() -> AnalyticsRepository:
   """Get analytics repository instance"""
 
   return analytics_repo
-
-
-
-

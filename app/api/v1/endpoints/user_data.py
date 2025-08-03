@@ -138,13 +138,51 @@ async def get_user_data(
 
      
 
-    # Get venue-specific data
+    # Get venue-specific data with error handling for index issues
 
-    venue_menu_items = await menu_repo.get_by_venue(venue_id)
+    try:
 
-    venue_tables = await table_repo.get_by_venue(venue_id)
+      venue_menu_items = await menu_repo.get_by_venue(venue_id)
 
-    venue_orders = await order_repo.get_by_venue(venue_id, limit=100) # Recent orders
+    except Exception as e:
+
+      logger.warning(f"Failed to get menu items, using fallback: {e}")
+
+      venue_menu_items = []
+
+       
+
+    try:
+
+      venue_tables = await table_repo.get_by_venue(venue_id)
+
+    except Exception as e:
+
+      logger.warning(f"Failed to get tables, using fallback: {e}")
+
+      venue_tables = []
+
+       
+
+    try:
+
+      venue_orders = await order_repo.get_by_venue(venue_id, limit=100)
+
+    except Exception as e:
+
+      logger.warning(f"Failed to get orders, using fallback: {e}")
+
+      venue_orders = []
+
+     
+
+    # Sort data client-side to avoid Firestore index requirements
+
+    venue_menu_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    venue_tables.sort(key=lambda x: x.get('table_number', 0))
+
+    venue_orders.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
      
 
@@ -154,7 +192,15 @@ async def get_user_data(
 
     if user_role in ['admin', 'superadmin']:
 
-      venue_users = await user_repo.get_by_venue(venue_id)
+      try:
+
+        venue_users = await user_repo.get_by_venue(venue_id)
+
+      except Exception as e:
+
+        logger.warning(f"Failed to get venue users, using fallback: {e}")
+
+        venue_users = []
 
      
 
@@ -374,15 +420,63 @@ async def get_venue_data(
 
      
 
-    # Get venue-specific data
+    # Get venue-specific data with error handling
 
-    venue_menu_items = await menu_repo.get_by_venue(venue_id)
+    try:
 
-    venue_tables = await table_repo.get_by_venue(venue_id)
+      venue_menu_items = await menu_repo.get_by_venue(venue_id)
 
-    venue_orders = await order_repo.get_by_venue(venue_id, limit=100)
+    except Exception as e:
 
-    venue_users = await user_repo.get_by_venue(venue_id)
+      logger.warning(f"Failed to get menu items: {e}")
+
+      venue_menu_items = []
+
+       
+
+    try:
+
+      venue_tables = await table_repo.get_by_venue(venue_id)
+
+    except Exception as e:
+
+      logger.warning(f"Failed to get tables: {e}")
+
+      venue_tables = []
+
+       
+
+    try:
+
+      venue_orders = await order_repo.get_by_venue(venue_id, limit=100)
+
+    except Exception as e:
+
+      logger.warning(f"Failed to get orders: {e}")
+
+      venue_orders = []
+
+       
+
+    try:
+
+      venue_users = await user_repo.get_by_venue(venue_id)
+
+    except Exception as e:
+
+      logger.warning(f"Failed to get users: {e}")
+
+      venue_users = []
+
+     
+
+    # Sort data client-side to avoid Firestore index requirements
+
+    venue_menu_items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    venue_tables.sort(key=lambda x: x.get('table_number', 0))
+
+    venue_orders.sort(key=lambda x: x.get('created_at', ''), reverse=True)
 
      
 
