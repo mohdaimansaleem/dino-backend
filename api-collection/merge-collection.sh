@@ -131,7 +131,7 @@ merge_collection() {
                 # Last item - remove only the trailing comma from the last line
                 sed '$s/,$//' "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
             else
-                # Not last item - append as is (with comma)
+                # Not last item - append as is (already has comma at end)
                 cat "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
             fi
             
