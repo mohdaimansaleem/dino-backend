@@ -272,3 +272,72 @@ async def get_venue_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get venue status"
         )
+
+
+@router.get("/{venue_id}/control-panel-status", 
+            response_model=Dict[str, Any],
+            summary="Get venue status for control panel",
+            description="Get simplified venue status for control panel display")
+async def get_control_panel_status(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get simplified venue status for control panel"""
+    try:
+        from app.database.firestore import get_venue_repo
+        venue_repo = get_venue_repo()
+        
+        # Get venue
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Check permissions
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role not in ['superadmin', 'admin', 'operator']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Determine current status
+        is_open = venue.get('is_open', False)
+        is_active = venue.get('is_active', False)
+        
+        # Create status message
+        if is_active and is_open:
+            status_message = "Open for Orders"
+            status_detail = "Accepting orders"
+        elif is_active and not is_open:
+            status_message = "Closed"
+            status_detail = "Not accepting orders"
+        else:
+            status_message = "Inactive"
+            status_detail = "Venue is inactive"
+        
+        control_panel_status = {
+            "venue_id": venue_id,
+            "venue_name": venue.get('name', 'Unknown Venue'),
+            "status_message": status_message,
+            "status_detail": status_detail,
+            "is_open": is_open,
+            "is_active": is_active,
+            "last_updated": venue.get('status_updated_at'),
+            "updated_by": venue.get('status_updated_by')
+        }
+        
+        return control_panel_status
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting control panel status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get control panel status"
+        )

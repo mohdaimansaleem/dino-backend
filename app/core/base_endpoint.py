@@ -117,7 +117,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             return ApiResponse(
                 success=True,
                 message=f"{self.collection_name.title()} created successfully",
-                data=self.model_class(**created_item)
+                data=created_item  # Return raw data instead of validating against model
             )
             
         except HTTPException:
@@ -188,7 +188,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             return ApiResponse(
                 success=True,
                 message=f"{self.collection_name.title()} updated successfully",
-                data=self.model_class(**updated_item)
+                data=updated_item  # Return raw data instead of validating against model
             )
             
         except HTTPException:

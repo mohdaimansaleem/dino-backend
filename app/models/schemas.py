@@ -440,6 +440,49 @@ class MenuItem(MenuItemBase, TimestampMixin):
     rating: float = Field(default=0.0, ge=0, le=5)
 
 # =============================================================================
+# TABLE AREA SCHEMAS
+# =============================================================================
+class TableAreaBase(BaseSchema):
+    """Base table area schema"""
+    name: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    color: Optional[str] = Field(None, max_length=7, description="Hex color code")
+
+class TableAreaCreate(TableAreaBase):
+    """Schema for creating table areas"""
+    venue_id: str
+    active: Optional[bool] = Field(default=True, alias="active")
+
+    class Config:
+        populate_by_name = True
+
+class TableAreaUpdate(BaseSchema):
+    """Schema for updating table areas"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    color: Optional[str] = Field(None, max_length=7, description="Hex color code")
+    active: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+class TableArea(TableAreaBase, TimestampMixin):
+    """Complete table area schema"""
+    id: str
+    venue_id: str
+    is_active: bool = Field(default=True)
+    active: bool = Field(default=True)  # For API compatibility
+
+    @validator('color')
+    def validate_color(cls, v):
+        """Validate hex color code"""
+        if v is None:
+            return v
+        if not v.startswith('#'):
+            v = f"#{v}"
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
+            raise ValueError('Color must be a valid hex color code')
+        return v
+
+# =============================================================================
 # TABLE SCHEMAS
 # =============================================================================
 class TableBase(BaseSchema):
@@ -447,6 +490,7 @@ class TableBase(BaseSchema):
     table_number: int = Field(..., ge=1)
     capacity: int = Field(..., ge=1, le=20)
     location: Optional[str] = Field(None, max_length=100)
+    area_id: Optional[str] = Field(None, description="Table area ID")
 
 class TableCreate(TableBase):
     """Schema for creating tables"""
@@ -456,6 +500,7 @@ class TableUpdate(BaseSchema):
     """Schema for updating tables"""
     capacity: Optional[int] = Field(None, ge=1, le=20)
     location: Optional[str] = Field(None, max_length=100)
+    area_id: Optional[str] = None
     table_status: Optional[TableStatus] = None
     is_active: Optional[bool] = None
 

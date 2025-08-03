@@ -830,6 +830,34 @@ class TransactionRepository(FirestoreRepository):
         ])
 
 
+class TableAreaRepository(FirestoreRepository):
+    def __init__(self):
+        super().__init__("table_areas")
+    
+    async def get_by_venue_id(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get table areas by venue ID"""
+        return await self.query([("venue_id", "==", venue_id)])
+    
+    async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get table areas by venue ID (alias)"""
+        return await self.get_by_venue_id(venue_id)
+    
+    async def get_active_areas(self, venue_id: str) -> List[Dict[str, Any]]:
+        """Get active table areas for a venue"""
+        return await self.query([
+            ("venue_id", "==", venue_id),
+            ("is_active", "==", True)
+        ])
+    
+    async def get_by_name(self, venue_id: str, name: str) -> Optional[Dict[str, Any]]:
+        """Get table area by venue and name"""
+        results = await self.query([
+            ("venue_id", "==", venue_id),
+            ("name", "==", name)
+        ])
+        return results[0] if results else None
+
+
 # Repository instances
 workspace_repo = WorkspaceRepository()
 role_repo = RoleRepository()
@@ -839,6 +867,7 @@ venue_repo = VenueRepository()
 menu_item_repo = MenuItemRepository()
 menu_category_repo = MenuCategoryRepository()
 table_repo = TableRepository()
+table_area_repo = TableAreaRepository()
 order_repo = OrderRepository()
 customer_repo = CustomerRepository()
 review_repo = ReviewRepository()
@@ -915,3 +944,8 @@ def get_transaction_repo() -> TransactionRepository:
 def get_analytics_repo() -> AnalyticsRepository:
     """Get analytics repository instance"""
     return analytics_repo
+
+
+def get_table_area_repo() -> TableAreaRepository:
+    """Get table area repository instance"""
+    return table_area_repo
