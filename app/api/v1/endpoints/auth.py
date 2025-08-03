@@ -263,7 +263,7 @@ async def login_user(login_data: UserLogin):
 @router.get("/me", response_model=User)
 async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user information"""
-    return User(**current_user)
+    return User.from_dict(current_user)
 
 @router.put("/me", response_model=ApiResponse)
 async def update_current_user(

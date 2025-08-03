@@ -1074,7 +1074,7 @@ async def get_workspace_users(
 
      
 
-    users = [User(**user) for user in users_data]
+    users = [User.from_dict(user) for user in users_data]
 
      
 
@@ -1941,4 +1941,3 @@ async def get_workspace_info(
       detail="Failed to get workspace information"
 
     )
-

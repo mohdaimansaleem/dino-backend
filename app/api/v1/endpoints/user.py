@@ -138,7 +138,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
             limit=50
         )
         
-        return [User(**user) for user in matching_users]
+        return [User.from_dict(user) for user in matching_users]
 
 
 # Initialize endpoint
@@ -224,7 +224,7 @@ async def login_user(login_data: UserLogin):
             description="Get current user's profile information")
 async def get_user_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user profile"""
-    return User(**current_user)
+    return User.from_dict(current_user)
 
 
 @router.put("/profile", 
@@ -264,7 +264,7 @@ async def update_user_profile(
         return ApiResponse(
             success=True,
             message="Profile updated successfully",
-            data=User(**updated_user)
+            data=User.from_dictw(updated_user)
         )
         
     except HTTPException:
