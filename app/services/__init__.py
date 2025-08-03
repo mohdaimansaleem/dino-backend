@@ -1,7 +1,7 @@
 # Business logic services
 
-from .dashboard_service import dashboard_service
+# Dashboard service is imported directly where needed to avoid circular imports
 
 
 
-__all__ = ['dashboard_service']
+__all__ = []d

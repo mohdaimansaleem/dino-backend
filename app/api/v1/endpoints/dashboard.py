@@ -18,7 +18,7 @@ from app.core.logging_config import get_logger
 
 from app.models.schemas import User, ApiResponse
 
-from app.services.dashboard_service import dashboard_service
+# Dashboard service imported lazily to avoid circular imports
 
 
 
@@ -27,6 +27,18 @@ logger = get_logger(__name__)
 
 
 router = APIRouter()
+
+
+
+
+
+def _get_dashboard_service():
+
+  """Lazy import of dashboard service to avoid circular imports"""
+
+  from app.services.dashboard_service import dashboard_service
+
+  return dashboard_service
 
 
 
@@ -66,7 +78,7 @@ async def get_superadmin_dashboard(current_user: Dict[str, Any] = Depends(get_cu
 
   try:
 
-    dashboard_data = await dashboard_service.get_superadmin_dashboard_data(current_user)
+    dashboard_data = await _get_dashboard_service().get_superadmin_dashboard_data(current_user)
 
     logger.info(f"Super admin dashboard data retrieved for user: {current_user.get('id')}")
 
@@ -148,7 +160,7 @@ async def get_admin_dashboard(current_user: Dict[str, Any] = Depends(get_current
 
   try:
 
-    dashboard_data = await dashboard_service.get_admin_dashboard_data(venue_id, current_user)
+    dashboard_data = await _get_dashboard_service().get_admin_dashboard_data(venue_id, current_user)
 
     logger.info(f"Admin dashboard data retrieved for user: {current_user.get('id')}, venue: {venue_id}")
 
@@ -230,7 +242,7 @@ async def get_operator_dashboard(current_user: Dict[str, Any] = Depends(get_curr
 
   try:
 
-    dashboard_data = await dashboard_service.get_operator_dashboard_data(venue_id, current_user)
+    dashboard_data = await _get_dashboard_service().get_operator_dashboard_data(venue_id, current_user)
 
     logger.info(f"Operator dashboard data retrieved for user: {current_user.get('id')}, venue: {venue_id}")
 
@@ -292,7 +304,7 @@ async def get_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)
 
     if user_role == "superadmin":
 
-      dashboard_data = await dashboard_service.get_superadmin_dashboard_data(current_user)
+      dashboard_data = await _get_dashboard_service().get_superadmin_dashboard_data(current_user)
 
     elif user_role == "admin":
 
@@ -308,7 +320,7 @@ async def get_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)
 
         )
 
-      dashboard_data = await dashboard_service.get_admin_dashboard_data(venue_id, current_user)
+      dashboard_data = await _get_dashboard_service().get_admin_dashboard_data(venue_id, current_user)
 
     elif user_role == "operator":
 
@@ -324,7 +336,7 @@ async def get_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)
 
         )
 
-      dashboard_data = await dashboard_service.get_operator_dashboard_data(venue_id, current_user)
+      dashboard_data = await _get_dashboard_service().get_operator_dashboard_data(venue_id, current_user)
 
     else:
 
@@ -412,7 +424,7 @@ async def get_dashboard_stats(current_user: Dict[str, Any] = Depends(get_current
 
     if venue_id:
 
-      venue_data = await dashboard_service.get_admin_dashboard_data(venue_id, current_user)
+      venue_data = await _get_dashboard_service().get_admin_dashboard_data(venue_id, current_user)
 
       stats.update({
 
@@ -502,7 +514,7 @@ async def get_live_order_status(venue_id: str, current_user: Dict[str, Any] = De
 
   try:
 
-    live_data = await dashboard_service.get_live_order_status(venue_id)
+    live_data = await _get_dashboard_service().get_live_order_status(venue_id)
 
      
 
@@ -580,7 +592,7 @@ async def get_live_table_status(venue_id: str, current_user: Dict[str, Any] = De
 
   try:
 
-    live_data = await dashboard_service.get_live_table_status(venue_id)
+    live_data = await _get_dashboard_service().get_live_table_status(venue_id)
 
      
 

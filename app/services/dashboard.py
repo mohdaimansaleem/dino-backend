@@ -1,4 +1,3 @@
-
 """
 
 Dashboard Service
@@ -17,7 +16,7 @@ from collections import defaultdict
 
 from app.core.logging_config import get_logger
 
-from app.core.dependency_injection import get_repository_manager
+# Import moved to avoid circular dependency
 
 from app.models.schemas import OrderStatus, TableStatus, PaymentStatus
 
@@ -37,7 +36,21 @@ class DashboardService:
 
   def __init__(self):
 
-    self.repo_manager = get_repository_manager()
+    self.repo_manager = None
+
+   
+
+  def _get_repo_manager(self):
+
+    """Lazy initialization of repository manager to avoid circular imports"""
+
+    if self.repo_manager is None:
+
+      from app.core.dependency_injection import get_repository_manager
+
+      self.repo_manager = get_repository_manager()
+
+    return self.repo_manager
 
    
 
@@ -49,13 +62,13 @@ class DashboardService:
 
       # Get repositories
 
-      workspace_repo = self.repo_manager.get_repository('workspace')
+      workspace_repo = self._get_repo_manager().get_repository('workspace')
 
-      venue_repo = self.repo_manager.get_repository('venue')
+      venue_repo = self._get_repo_manager().get_repository('venue')
 
-      user_repo = self.repo_manager.get_repository('user')
+      user_repo = self._get_repo_manager().get_repository('user')
 
-      order_repo = self.repo_manager.get_repository('order')
+      order_repo = self._get_repo_manager().get_repository('order')
 
        
 
@@ -169,13 +182,13 @@ class DashboardService:
 
       # Get repositories
 
-      order_repo = self.repo_manager.get_repository('order')
+      order_repo = self._get_repo_manager().get_repository('order')
 
-      table_repo = self.repo_manager.get_repository('table')
+      table_repo = self._get_repo_manager().get_repository('table')
 
-      menu_item_repo = self.repo_manager.get_repository('menu_item')
+      menu_item_repo = self._get_repo_manager().get_repository('menu_item')
 
-      user_repo = self.repo_manager.get_repository('user')
+      user_repo = self._get_repo_manager().get_repository('user')
 
        
 
@@ -345,9 +358,9 @@ class DashboardService:
 
       # Get repositories
 
-      order_repo = self.repo_manager.get_repository('order')
+      order_repo = self._get_repo_manager().get_repository('order')
 
-      table_repo = self.repo_manager.get_repository('table')
+      table_repo = self._get_repo_manager().get_repository('table')
 
        
 
@@ -503,9 +516,9 @@ class DashboardService:
 
     try:
 
-      order_repo = self.repo_manager.get_repository('order')
+      order_repo = self._get_repo_manager().get_repository('order')
 
-      table_repo = self.repo_manager.get_repository('table')
+      table_repo = self._get_repo_manager().get_repository('table')
 
        
 
@@ -635,7 +648,7 @@ class DashboardService:
 
     try:
 
-      table_repo = self.repo_manager.get_repository('table')
+      table_repo = self._get_repo_manager().get_repository('table')
 
        
 
