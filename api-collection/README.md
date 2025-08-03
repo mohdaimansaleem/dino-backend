@@ -6,16 +6,20 @@ A comprehensive Postman collection for the Dino E-Menu Backend API with all endp
 
 The API collection is organized into logical sections:
 
-1. **🔐 Authentication** - User registration, login, token management
+1. **🔐 Authentication** - User registration, login, token management, permissions
 2. **👥 User Management** - User CRUD operations and role assignments
 3. **🏢 Workspace Management** - Multi-tenant workspace operations
 4. **🏪 Venue Management** - Restaurant/cafe management
-5. **🍽️ Menu Management** - Menu categories and items
-6. **🪑 Table Management** - Table operations with QR codes
-7. **🛒 Order Management** - Order lifecycle and tracking
-8. **👑 Role Management** - Role creation and permission assignment
-9. **🔐 Permission Management** - Granular permission system
-10. **🏥 Health & Monitoring** - Health checks and system status
+5. **🍽️ Menu Management** - Menu categories and items (basic)
+6. **🍽️ Enhanced Menu Management** - Advanced menu features with image uploads, bulk operations, search
+7. **🪑 Table Management** - Table operations with QR codes (basic)
+8. **🪑 Enhanced Table Management** - Advanced table features with QR management, status tracking, bulk operations
+9. **🛒 Order Management** - Order lifecycle and tracking (basic)
+10. **🛒 Enhanced Order Management** - Public ordering, QR access, real-time tracking, analytics
+11. **👑 Role Management** - Role creation and permission assignment
+12. **🔐 Permission Management** - Granular permission system
+13. **📊 Dashboard Management** - Role-based dashboards with real-time data
+14. **🏥 Health & Monitoring** - Health checks and system status
 
 ## 🚀 Quick Start
 
@@ -131,10 +135,20 @@ Create a new environment in Postman with these variables:
 ## 🛠️ Customization
 
 ### Adding New Endpoints
-1. Create a new chunk file (e.g., `12-new-feature.json`)
+1. Create a new chunk file (e.g., `13-new-feature.json`)
 2. Follow the existing format
 3. Add to `COLLECTION_FILES` array in `merge-collection.sh`
 4. Re-run the merge script
+
+### Enhanced Features Added
+- **Public Ordering**: QR code access, order validation, customer ordering without authentication
+- **Image Management**: Upload images for menu categories and items
+- **Bulk Operations**: Create/update multiple items at once
+- **Advanced Search**: Search menu items by name/description
+- **Real-time Dashboards**: Role-based dashboards with live data
+- **QR Code Management**: Generate, regenerate, and verify table QR codes
+- **Status Tracking**: Real-time order and table status management
+- **Analytics**: Order analytics and venue statistics
 
 ### Environment Configuration
 - **Development**: `http://localhost:8080`
@@ -143,11 +157,12 @@ Create a new environment in Postman with these variables:
 
 ## 📊 Collection Statistics
 
-- **Total Endpoints**: 100+ API endpoints
-- **Folders**: 10 organized sections
+- **Total Endpoints**: 150+ API endpoints
+- **Folders**: 14 organized sections
 - **Authentication**: JWT-based with auto-token management
 - **Testing**: Comprehensive test scripts for all endpoints
 - **Documentation**: Detailed descriptions and examples
+- **New Features**: Public ordering, QR code management, real-time dashboards, bulk operations
 
 ## 🔍 Troubleshooting
 

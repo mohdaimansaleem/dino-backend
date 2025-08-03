@@ -1,0 +1,636 @@
+		{
+			"name": "🪑 Enhanced Table Management",
+			"description": "Complete table management with QR codes, status tracking, and bulk operations",
+			"item": [
+				{
+					"name": "📋 Table CRUD Operations",
+					"description": "Basic table management operations",
+					"item": [
+						{
+							"name": "Get Tables",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has tables data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('data');",
+											"    pm.expect(jsonData.data).to.be.an('array');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/?page=1&page_size=10&venue_id={{venue_id}}&table_status=available&is_active=true",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", ""],
+									"query": [
+										{
+											"key": "page",
+											"value": "1"
+										},
+										{
+											"key": "page_size",
+											"value": "10"
+										},
+										{
+											"key": "venue_id",
+											"value": "{{venue_id}}"
+										},
+										{
+											"key": "table_status",
+											"value": "available",
+											"disabled": true
+										},
+										{
+											"key": "is_active",
+											"value": "true",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Get paginated list of tables with filtering options."
+							},
+							"response": []
+						},
+						{
+							"name": "Create Table",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 201', function () {",
+											"    pm.response.to.have.status(201);",
+											"});",
+											"",
+											"pm.test('Response has table data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('data');",
+											"    pm.expect(jsonData.data).to.have.property('id');",
+											"    pm.expect(jsonData.data).to.have.property('qr_code');",
+											"    ",
+											"    // Store table ID for further operations",
+											"    pm.environment.set('created_table_id', jsonData.data.id);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"venue_id\": \"{{venue_id}}\",\n    \"table_number\": 15,\n    \"capacity\": 4,\n    \"location\": \"Main dining area\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", ""]
+								},
+								"description": "Create a new table with automatic QR code generation."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Table by ID",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has table data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('id');",
+											"    pm.expect(jsonData).to.have.property('table_number');",
+											"    pm.expect(jsonData).to.have.property('qr_code');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{created_table_id}}",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{created_table_id}}"]
+								},
+								"description": "Get specific table by ID."
+							},
+							"response": []
+						},
+						{
+							"name": "Update Table",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"capacity\": 6,\n    \"location\": \"VIP dining area\",\n    \"table_status\": \"available\",\n    \"is_active\": true\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{created_table_id}}",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{created_table_id}}"]
+								},
+								"description": "Update table information."
+							},
+							"response": []
+						},
+						{
+							"name": "Delete Table",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{created_table_id}}",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{created_table_id}}"]
+								},
+								"description": "Delete table (soft delete by deactivating)."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "🔄 Table Status Management",
+					"description": "Table status tracking and management",
+					"item": [
+						{
+							"name": "Update Table Status",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"new_status\": \"occupied\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{table_id}}/status",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{table_id}}", "status"]
+								},
+								"description": "Update table status. Valid statuses: available, occupied, booked, maintenance, out_of_service."
+							},
+							"response": []
+						},
+						{
+							"name": "Occupy Table",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{table_id}}/occupy",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{table_id}}", "occupy"]
+								},
+								"description": "Mark table as occupied."
+							},
+							"response": []
+						},
+						{
+							"name": "Free Table",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{table_id}}/free",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{table_id}}", "free"]
+								},
+								"description": "Mark table as available."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "📱 QR Code Management",
+					"description": "QR code generation and verification",
+					"item": [
+						{
+							"name": "Get Table QR Code",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has QR code data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('qr_code');",
+											"    pm.expect(jsonData).to.have.property('venue_id');",
+											"    pm.expect(jsonData).to.have.property('table_number');",
+											"    ",
+											"    // Store QR code for verification test",
+											"    pm.environment.set('table_qr_code', jsonData.qr_code);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{table_id}}/qr-code",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{table_id}}", "qr-code"]
+								},
+								"description": "Get QR code data for table."
+							},
+							"response": []
+						},
+						{
+							"name": "Regenerate Table QR Code",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has new QR code', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('data');",
+											"    pm.expect(jsonData.data).to.have.property('qr_code');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/{{table_id}}/regenerate-qr",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "{{table_id}}", "regenerate-qr"]
+								},
+								"description": "Regenerate QR code for table."
+							},
+							"response": []
+						},
+						{
+							"name": "Verify QR Code",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has verification data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('valid', true);",
+											"    pm.expect(jsonData).to.have.property('table');",
+											"    pm.expect(jsonData).to.have.property('venue');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "\"{{table_qr_code}}\""
+								},
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/verify-qr",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "verify-qr"]
+								},
+								"description": "Verify and decode table QR code."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "🏪 Venue Table Operations",
+					"description": "Venue-specific table operations",
+					"item": [
+						{
+							"name": "Get Venue Tables",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has tables array', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.be.an('array');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/venues/{{venue_id}}/tables?status=available",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "venues", "{{venue_id}}", "tables"],
+									"query": [
+										{
+											"key": "status",
+											"value": "available",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Get all tables for a specific venue with optional status filter."
+							},
+							"response": []
+						},
+						{
+							"name": "Get Venue Table Statistics",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response has statistics data', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('venue_id');",
+											"    pm.expect(jsonData).to.have.property('total_tables');",
+											"    pm.expect(jsonData).to.have.property('active_tables');",
+											"    pm.expect(jsonData).to.have.property('status_breakdown');",
+											"    pm.expect(jsonData).to.have.property('utilization_rate');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/venues/{{venue_id}}/statistics",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "venues", "{{venue_id}}", "statistics"]
+								},
+								"description": "Get table statistics for a venue including utilization rates."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "⚡ Bulk Operations",
+					"description": "Bulk table operations for efficiency",
+					"item": [
+						{
+							"name": "Bulk Create Tables",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"    pm.expect(jsonData.data).to.have.property('created_count');",
+											"    pm.expect(jsonData.data).to.have.property('table_ids');",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/bulk-create?venue_id={{venue_id}}&start_number=20&count=5&capacity=4&location=Outdoor seating",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "bulk-create"],
+									"query": [
+										{
+											"key": "venue_id",
+											"value": "{{venue_id}}"
+										},
+										{
+											"key": "start_number",
+											"value": "20"
+										},
+										{
+											"key": "count",
+											"value": "5"
+										},
+										{
+											"key": "capacity",
+											"value": "4"
+										},
+										{
+											"key": "location",
+											"value": "Outdoor seating"
+										}
+									]
+								},
+								"description": "Create multiple tables at once with sequential numbering."
+							},
+							"response": []
+						},
+						{
+							"name": "Bulk Update Table Status",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"pm.test('Status code is 200', function () {",
+											"    pm.response.to.have.status(200);",
+											"});",
+											"",
+											"pm.test('Response indicates success', function () {",
+											"    const jsonData = pm.response.json();",
+											"    pm.expect(jsonData).to.have.property('success', true);",
+											"});"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"table_ids\": [\"table1_id\", \"table2_id\", \"table3_id\"],\n    \"new_status\": \"maintenance\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/{{api_version}}/tables/bulk-update-status",
+									"host": ["{{base_url}}"],
+									"path": ["api", "{{api_version}}", "tables", "bulk-update-status"]
+								},
+								"description": "Update status for multiple tables at once."
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},

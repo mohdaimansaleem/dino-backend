@@ -1,0 +1,254 @@
+		{
+			"name": "📊 Dashboard Management",
+			"description": "Role-based dashboard endpoints with real-time data and analytics",
+			"item": [
+				{
+					"name": "🏢 SuperAdmin Dashboard",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has superadmin dashboard data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"    pm.expect(jsonData.data).to.have.property('workspaces');",
+									"    pm.expect(jsonData.data.summary).to.have.property('total_workspaces');",
+									"    pm.expect(jsonData.data.summary).to.have.property('total_venues');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/superadmin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "superadmin"]
+						},
+						"description": "Get super admin dashboard with workspace-wide data. Requires SuperAdmin role."
+					},
+					"response": []
+				},
+				{
+					"name": "🏪 Admin Dashboard",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has admin dashboard data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"    pm.expect(jsonData.data).to.have.property('recent_orders');",
+									"    pm.expect(jsonData.data.summary).to.have.property('today_orders');",
+									"    pm.expect(jsonData.data.summary).to.have.property('today_revenue');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/admin",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "admin"]
+						},
+						"description": "Get admin dashboard with venue-specific data. Requires Admin role and venue assignment."
+					},
+					"response": []
+				},
+				{
+					"name": "👨‍💼 Operator Dashboard",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has operator dashboard data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"    pm.expect(jsonData.data).to.have.property('active_orders');",
+									"    pm.expect(jsonData.data.summary).to.have.property('active_orders');",
+									"    pm.expect(jsonData.data.summary).to.have.property('pending_orders');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/operator",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "operator"]
+						},
+						"description": "Get operator dashboard with operational data. Requires Operator role and venue assignment."
+					},
+					"response": []
+				},
+				{
+					"name": "🎯 Auto Dashboard (Role-based)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has dashboard data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard"]
+						},
+						"description": "Get dashboard data automatically based on user role. Routes to appropriate dashboard."
+					},
+					"response": []
+				},
+				{
+					"name": "📈 Dashboard Statistics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has stats data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('user_id');",
+									"    pm.expect(jsonData.data).to.have.property('user_role');",
+									"    pm.expect(jsonData.data).to.have.property('last_updated');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/stats",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "stats"]
+						},
+						"description": "Get general dashboard statistics that can be used across different dashboards."
+					},
+					"response": []
+				},
+				{
+					"name": "🔴 Live Order Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has live order data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"    pm.expect(jsonData.data).to.have.property('orders_by_status');",
+									"    pm.expect(jsonData.data.summary).to.have.property('total_active_orders');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/live-orders/{{venue_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "live-orders", "{{venue_id}}"]
+						},
+						"description": "Get real-time order status for a venue. Requires Admin/Operator role and venue access."
+					},
+					"response": []
+				},
+				{
+					"name": "🪑 Live Table Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has live table data', function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('tables');",
+									"    pm.expect(jsonData.data).to.have.property('summary');",
+									"    pm.expect(jsonData.data.summary).to.have.property('total_tables');",
+									"    pm.expect(jsonData.data.summary).to.have.property('available');",
+									"    pm.expect(jsonData.data.summary).to.have.property('occupied');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/{{api_version}}/dashboard/live-tables/{{venue_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "{{api_version}}", "dashboard", "live-tables", "{{venue_id}}"]
+						},
+						"description": "Get real-time table status for a venue. Requires Admin/Operator role and venue access."
+					},
+					"response": []
+				}
+			]
+		},

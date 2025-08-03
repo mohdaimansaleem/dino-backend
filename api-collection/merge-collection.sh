@@ -49,11 +49,15 @@ COLLECTION_FILES=(
     "03-workspaces.json"
     "04-venues.json"
     "05-menu.json"
+    "05-menu-enhanced.json"
     "06-tables.json"
+    "06-tables-enhanced.json"
     "07-orders.json"
+    "07-orders-enhanced.json"
     "08-roles.json"
     "09-permissions.json"
     "10-health.json"
+    "12-dashboard.json"
     "11-collection-footer.json"
 )
 
@@ -96,22 +100,42 @@ merge_collection() {
     
     # Start merging
     local file_count=0
+    local total_files=${#COLLECTION_FILES[@]}
+    
+    # Get list of item files (exclude header and footer)
+    local item_files=()
+    for file in "${COLLECTION_FILES[@]}"; do
+        if [[ "$file" != *"header"* && "$file" != *"footer"* ]]; then
+            item_files+=("$file")
+        fi
+    done
+    local total_items=${#item_files[@]}
+    local item_index=0
     
     for file in "${COLLECTION_FILES[@]}"; do
         info "Processing: $file"
         
-        if [ $file_count -eq 0 ]; then
-            # First file - copy as is
+        if [[ "$file" == *"header"* ]]; then
+            # Header file - copy as is (ends with "item": [)
             cp "$SCRIPT_DIR/$file" "$SCRIPT_DIR/$TEMP_FILE"
+        elif [[ "$file" == *"footer"* ]]; then
+            # Footer file - append directly (closes array and object)
+            echo "" >> "$SCRIPT_DIR/$TEMP_FILE"
+            cat "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
         else
-            # Append content (remove first and last lines for JSON structure)
-            if [[ "$file" == *"footer"* ]]; then
-                # Footer file - just append
-                cat "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
+            # Regular collection item files
+            echo "" >> "$SCRIPT_DIR/$TEMP_FILE"
+            
+            # Check if this is the last item file
+            if [ $item_index -eq $((total_items - 1)) ]; then
+                # Last item - remove only the trailing comma from the last line
+                sed '$s/,$//' "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
             else
-                # Regular file - append content
+                # Not last item - append as is (with comma)
                 cat "$SCRIPT_DIR/$file" >> "$SCRIPT_DIR/$TEMP_FILE"
             fi
+            
+            item_index=$((item_index + 1))
         fi
         
         file_count=$((file_count + 1))
