@@ -273,15 +273,42 @@ class UserUpdate(BaseSchema):
     phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
     is_active: Optional[bool] = None
 
-class User(UserBase, TimestampMixin):
-    """Complete user schema"""
+class User(TimestampMixin):
+    """Complete user schema for responses"""
     id: str
+    email: EmailStr
+    phone: Optional[str] = Field(None, description="Unique phone number")
+    first_name: str = Field(..., min_length=1, max_length=50)
+    last_name: str = Field(..., min_length=1, max_length=50)
     role_id: Optional[str] = None
     is_active: bool = Field(default=True)
     is_verified: bool = Field(default=False)
     email_verified: bool = Field(default=False)
     mobile_verified: bool = Field(default=False)
     last_login: Optional[datetime] = None
+    
+    @validator('phone')
+    def validate_phone(cls, v):
+        """Validate phone number format if provided"""
+        if v is None or v == "":
+            return None
+        # Basic phone validation
+        if not re.match(r"^[+]?[1-9]?[0-9]{7,15}$", v):
+            raise ValueError('Invalid phone number format')
+        return v
+    
+    @classmethod
+    def from_dict(cls, user_data: Dict[str, Any]) -> 'User':
+        """Create User instance from dict, handling field mapping from database"""
+        data = user_data.copy()
+        
+        # Map mobile_number to phone if present
+        if "mobile_number" in data:
+            data["phone"] = data.pop("mobile_number")
+        elif not data.get("phone"):
+            data["phone"] = None
+            
+        return cls(**data)
 
 # =============================================================================
 # VENUE SCHEMAS (Unified from Cafe)

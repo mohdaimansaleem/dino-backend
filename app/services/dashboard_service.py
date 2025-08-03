@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 from app.core.logging_config import get_logger
-from app.core.dependency_injection import get_repository_manager
+# Import moved to avoid circular dependency
 from app.models.schemas import OrderStatus, TableStatus, PaymentStatus
 
 logger = get_logger(__name__)
@@ -17,16 +17,23 @@ class DashboardService:
     """Service for dashboard data aggregation and analytics"""
     
     def __init__(self):
-        self.repo_manager = get_repository_manager()
+        self.repo_manager = None
+    
+    def _get_repo_manager(self):
+        """Lazy initialization of repository manager to avoid circular imports"""
+        if self.repo_manager is None:
+            from app.core.dependency_injection import get_repository_manager
+            self.repo_manager = get_repository_manager()
+        return self.repo_manager
     
     async def get_superadmin_dashboard_data(self, current_user: Dict[str, Any]) -> Dict[str, Any]:
         """Get comprehensive dashboard data for super admin"""
         try:
             # Get repositories
-            workspace_repo = self.repo_manager.get_repository('workspace')
-            venue_repo = self.repo_manager.get_repository('venue')
-            user_repo = self.repo_manager.get_repository('user')
-            order_repo = self.repo_manager.get_repository('order')
+            workspace_repo = self._get_repo_manager().get_repository('workspace')
+            venue_repo = self._get_repo_manager().get_repository('venue')
+            user_repo = self._get_repo_manager().get_repository('user')
+            order_repo = self._get_repo_manager().get_repository('order')
             
             # Get all workspaces
             workspaces = await workspace_repo.get_all()
@@ -83,10 +90,10 @@ class DashboardService:
         """Get dashboard data for venue admin"""
         try:
             # Get repositories
-            order_repo = self.repo_manager.get_repository('order')
-            table_repo = self.repo_manager.get_repository('table')
-            menu_item_repo = self.repo_manager.get_repository('menu_item')
-            user_repo = self.repo_manager.get_repository('user')
+            order_repo = self._get_repo_manager().get_repository('order')
+            table_repo = self._get_repo_manager().get_repository('table')
+            menu_item_repo = self._get_repo_manager().get_repository('menu_item')
+            user_repo = self._get_repo_manager().get_repository('user')
             
             # Get today's date range
             today = datetime.utcnow().date()
@@ -171,8 +178,8 @@ class DashboardService:
         """Get dashboard data for venue operator"""
         try:
             # Get repositories
-            order_repo = self.repo_manager.get_repository('order')
-            table_repo = self.repo_manager.get_repository('table')
+            order_repo = self._get_repo_manager().get_repository('order')
+            table_repo = self._get_repo_manager().get_repository('table')
             
             # Get all orders for this venue
             all_orders = await order_repo.get_by_venue_id(venue_id)
@@ -250,8 +257,8 @@ class DashboardService:
     async def get_live_order_status(self, venue_id: str) -> Dict[str, Any]:
         """Get real-time order status for venue"""
         try:
-            order_repo = self.repo_manager.get_repository('order')
-            table_repo = self.repo_manager.get_repository('table')
+            order_repo = self._get_repo_manager().get_repository('order')
+            table_repo = self._get_repo_manager().get_repository('table')
             
             # Get all orders for this venue
             all_orders = await order_repo.get_by_venue_id(venue_id)
@@ -316,7 +323,7 @@ class DashboardService:
     async def get_live_table_status(self, venue_id: str) -> Dict[str, Any]:
         """Get real-time table status for venue"""
         try:
-            table_repo = self.repo_manager.get_repository('table')
+            table_repo = self._get_repo_manager().get_repository('table')
             
             # Get all tables for this venue
             tables = await table_repo.get_by_venue(venue_id)

@@ -114,7 +114,7 @@ class AuthService:
             # Create user data
             user_dict = {
                 "email": user_data.email,
-                "phone": user_data.phone,
+                "mobile_number": user_data.phone,  # Store as mobile_number in database
                 "first_name": user_data.first_name,
                 "last_name": user_data.last_name,
                 "role_id": role_id,
@@ -206,21 +206,7 @@ class AuthService:
                 pass  # Don't fail login for this
             
             # Prepare user data for response
-            user_response = User(
-                id=user["id"],
-                email=user["email"],
-                phone=user["phone"],
-                first_name=user["first_name"],
-                last_name=user["last_name"],
-                role_id=user.get("role_id"),
-                is_active=user.get("is_active", True),
-                is_verified=user.get("is_verified", False),
-                email_verified=user.get("email_verified", False),
-                mobile_verified=user.get("mobile_verified", False),
-                last_login=user.get("last_login"),
-                created_at=user.get("created_at"),
-                updated_at=user.get("updated_at")
-            )
+            user_response = User.from_dict(user)
             
             return AuthToken(
                 access_token=access_token,
@@ -233,7 +219,11 @@ class AuthService:
         except HTTPException:
             raise
         except Exception as e:
-            logger.error(f"Login failed: {e}")
+            logger.error(f"Login failed: {e}", exc_info=True)
+            # Log user data for debugging (without sensitive info)
+            if 'user' in locals():
+                logger.error(f"User data keys: {list(user.keys()) if user else 'None'}")
+                logger.error(f"User mobile_number value: {user.get('mobile_number') if user else 'No user'}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Login failed"
@@ -260,6 +250,10 @@ class AuthService:
             update_data.pop("hashed_password", None)
             update_data.pop("id", None)
             update_data.pop("created_at", None)
+            
+            # Map phone field to mobile_number for database storage
+            if "phone" in update_data:
+                update_data["mobile_number"] = update_data.pop("phone")
             
             # Update user
             updated_user = await user_repo.update(user_id, update_data)
@@ -335,21 +329,7 @@ class AuthService:
                 expires_delta=refresh_token_expires
             )
             
-            user_response = User(
-                id=user["id"],
-                email=user["email"],
-                phone=user["phone"],
-                first_name=user["first_name"],
-                last_name=user["last_name"],
-                role_id=user.get("role_id"),
-                is_active=user.get("is_active", True),
-                is_verified=user.get("is_verified", False),
-                email_verified=user.get("email_verified", False),
-                mobile_verified=user.get("mobile_verified", False),
-                last_login=user.get("last_login"),
-                created_at=user.get("created_at"),
-                updated_at=user.get("updated_at")
-            )
+            user_response = User.from_dict(user)
             
             return AuthToken(
                 access_token=access_token,

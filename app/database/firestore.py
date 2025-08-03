@@ -629,18 +629,18 @@ class MenuItemRepository(FirestoreRepository):
     
     async def get_by_venue_id(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get menu items by venue ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get menu items by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="order")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_category(self, venue_id: str, category: str) -> List[Dict[str, Any]]:
         """Get menu items by cafe and category"""
         return await self.query([
             ("venue_id", "==", venue_id),
             ("category", "==", category)
-        ], order_by="order")
+        ])
 
 
 class MenuCategoryRepository(FirestoreRepository):
@@ -649,7 +649,7 @@ class MenuCategoryRepository(FirestoreRepository):
     
     async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get menu categories by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="order")
+        return await self.query([("venue_id", "==", venue_id)])
 
 
 class TableRepository(FirestoreRepository):
@@ -658,11 +658,11 @@ class TableRepository(FirestoreRepository):
     
     async def get_by_venue_id(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get tables by venue ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="table_number")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get tables by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="table_number")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_table_number(self, venue_id: str, table_number: int) -> Optional[Dict[str, Any]]:
         """Get table by cafe and table number"""
@@ -691,15 +691,15 @@ class OrderRepository(FirestoreRepository):
     
     async def get_by_venue_id(self, venue_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get orders by venue ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
+        return await self.query([("venue_id", "==", venue_id)], limit=limit)
     
     async def get_recent(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent orders"""
-        return await self.query([], order_by="created_at", limit=limit)
+        return await self.query([], limit=limit)
     
     async def get_by_cafe(self, venue_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get orders by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
+        return await self.query([("venue_id", "==", venue_id)], limit=limit)
     
     async def get_by_venue(self, venue_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get orders by venue ID (alias for get_by_venue_id)"""
@@ -710,7 +710,7 @@ class OrderRepository(FirestoreRepository):
         return await self.query([
             ("venue_id", "==", venue_id),
             ("status", "==", status)
-        ], order_by="created_at")
+        ])
 
 
 class AnalyticsRepository(FirestoreRepository):
@@ -724,7 +724,7 @@ class AnalyticsRepository(FirestoreRepository):
             ("venue_id", "==", venue_id),
             ("date", ">=", start_date),
             ("date", "<=", end_date)
-        ], order_by="date")
+        ])
 
 
 class CustomerRepository(FirestoreRepository):
@@ -782,7 +782,7 @@ class ReviewRepository(FirestoreRepository):
     
     async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get reviews by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_customer(self, customer_id: str) -> List[Dict[str, Any]]:
         """Get reviews by customer ID"""
@@ -800,7 +800,7 @@ class NotificationRepository(FirestoreRepository):
     
     async def get_by_recipient(self, recipient_id: str) -> List[Dict[str, Any]]:
         """Get notifications by recipient ID"""
-        return await self.query([("recipient_id", "==", recipient_id)], order_by="created_at")
+        return await self.query([("recipient_id", "==", recipient_id)])
     
     async def get_unread(self, recipient_id: str) -> List[Dict[str, Any]]:
         """Get unread notifications"""
@@ -816,7 +816,7 @@ class TransactionRepository(FirestoreRepository):
     
     async def get_by_venue(self, venue_id: str) -> List[Dict[str, Any]]:
         """Get transactions by cafe ID"""
-        return await self.query([("venue_id", "==", venue_id)], order_by="created_at")
+        return await self.query([("venue_id", "==", venue_id)])
     
     async def get_by_order(self, order_id: str) -> List[Dict[str, Any]]:
         """Get transactions by order ID"""

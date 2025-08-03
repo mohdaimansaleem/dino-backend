@@ -134,6 +134,13 @@ async def root():
     }
 
 
+@app.get("/deployment-check")
+async def deployment_check():
+    """Check if latest deployment is active"""
+    from app.deployment_check import get_deployment_info
+    return get_deployment_info()
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint for Cloud Run"""

@@ -139,7 +139,7 @@ async def register_workspace(registration_data: WorkspaceRegistration):
         user_data = {
             "id": user_id,
             "email": registration_data.owner_email,
-            "phone": owner_mobile,
+            "mobile_number": owner_mobile,  # Store as mobile_number in database
             "first_name": registration_data.owner_first_name,
             "last_name": registration_data.owner_last_name,
             "hashed_password": hashed_password,
@@ -263,7 +263,7 @@ async def login_user(login_data: UserLogin):
 @router.get("/me", response_model=User)
 async def get_current_user_info(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user information"""
-    return User(**current_user)
+    return User.from_dict(current_user)
 
 @router.put("/me", response_model=ApiResponse)
 async def update_current_user(

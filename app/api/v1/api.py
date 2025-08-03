@@ -22,7 +22,8 @@ from app.api.v1.endpoints import (
     dashboard,
     user_preferences,
     venue_status,
-    table_areas
+    table_areas,
+    user_data
 )
 
 api_router = APIRouter()
@@ -111,6 +112,18 @@ api_router.include_router(
         401: {"description": "Authentication failed"},
         400: {"description": "Invalid credentials"},
         409: {"description": "User already exists"}
+    }
+)
+
+# User Data Management
+api_router.include_router(
+    user_data.router, 
+    prefix="/auth", 
+    tags=["user-data"],
+    responses={
+        404: {"description": "User data not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"}
     }
 )
 

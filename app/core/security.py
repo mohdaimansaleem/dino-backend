@@ -20,12 +20,26 @@ security = HTTPBearer()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except Exception as e:
+        # Log the error but don't expose it to the user
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Password verification error: {e}")
+        return False
 
 
 def get_password_hash(password: str) -> str:
     """Generate password hash"""
-    return pwd_context.hash(password)
+    try:
+        return pwd_context.hash(password)
+    except Exception as e:
+        # Log the error and re-raise since this is critical
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Password hashing error: {e}")
+        raise
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
@@ -74,18 +88,33 @@ async def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depend
 async def get_current_user(user_id: str = Depends(get_current_user_id)):
     """Get current user from database"""
     from app.database.firestore import get_user_repo
+    from app.core.logging_config import get_logger
     
-    user_repo = get_user_repo()
-    user_data = await user_repo.get_by_id(user_id)
+    logger = get_logger(__name__)
     
-    if user_data is None:
+    try:
+        user_repo = get_user_repo()
+        user_data = await user_repo.get_by_id(user_id)
+        
+        if user_data is None:
+            logger.warning(f"User not found in database: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        logger.debug(f"User authenticated successfully: {user_id}")
+        return user_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting current user: {e}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-            headers={"WWW-Authenticate": "Bearer"},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service error"
         )
-    
-    return user_data
 
 
 async def get_current_admin_user(current_user = Depends(get_current_user)):
