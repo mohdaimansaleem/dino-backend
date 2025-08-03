@@ -59,12 +59,7 @@ api_router.include_router(
 api_router.include_router(
     workspace.router, 
     prefix="/workspaces", 
-    tags=["workspaces"],
-    responses={
-        404: {"description": "Workspace not found"},
-        403: {"description": "Access denied"},
-        401: {"description": "Authentication required"}
-    }
+    tags=["workspaces"]
 )
 
 # Menu Management

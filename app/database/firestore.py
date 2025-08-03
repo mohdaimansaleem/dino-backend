@@ -701,6 +701,10 @@ class OrderRepository(FirestoreRepository):
         """Get orders by cafe ID"""
         return await self.query([("venue_id", "==", venue_id)], order_by="created_at", limit=limit)
     
+    async def get_by_venue(self, venue_id: str, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get orders by venue ID (alias for get_by_venue_id)"""
+        return await self.get_by_venue_id(venue_id, limit=limit)
+    
     async def get_by_status(self, venue_id: str, status: str) -> List[Dict[str, Any]]:
         """Get orders by cafe and status"""
         return await self.query([

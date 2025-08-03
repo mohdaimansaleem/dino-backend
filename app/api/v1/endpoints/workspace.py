@@ -4,6 +4,7 @@ Refactored with standardized patterns, enhanced security, and comprehensive mana
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+from datetime import datetime
 
 from app.models.schemas import (
     Workspace, WorkspaceCreate, WorkspaceUpdate, ApiResponse, PaginatedResponse,
@@ -12,10 +13,116 @@ from app.models.schemas import (
 from app.core.base_endpoint import BaseEndpoint
 from app.database.firestore import get_workspace_repo, WorkspaceRepository
 from app.core.security import get_current_user, get_current_admin_user, verify_workspace_access
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+# Optional authentication for debugging
+security = HTTPBearer(auto_error=False)
+
+async def get_current_user_optional(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
+    """Get current user with optional authentication for debugging"""
+    if not credentials:
+        return None
+    
+    try:
+        from app.core.security import verify_token
+        from app.database.firestore import get_user_repo
+        
+        payload = verify_token(credentials.credentials)
+        user_id = payload.get("sub")
+        
+        if not user_id:
+            return None
+            
+        user_repo = get_user_repo()
+        user_data = await user_repo.get_by_id(user_id)
+        return user_data
+    except:
+        return None
+
+
+@router.get("/test", 
+            summary="Test workspace endpoint",
+            description="Simple test endpoint to verify workspace router is working")
+async def test_workspace_endpoint():
+    """Test endpoint to verify workspace router is working"""
+    return {
+        "success": True,
+        "message": "Workspace endpoint is working",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/list")
+async def list_workspaces(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by name or description"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Alternative endpoint to list workspaces"""
+    try:
+        logger.info(f"List workspaces endpoint called by user: {current_user.get('id')}")
+        
+        filters = {}
+        if is_active is not None:
+            filters['is_active'] = is_active
+        
+        result = await workspaces_endpoint.get_items(
+            page=page,
+            page_size=page_size,
+            search=search,
+            filters=filters,
+            current_user=current_user
+        )
+        
+        logger.info(f"Workspaces returned: {len(result.data) if result.data else 0}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in list_workspaces: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get workspaces: {str(e)}"
+        )
+
+
+@router.get("/public-debug")
+async def public_debug_workspaces():
+    """Public debug endpoint to test workspace access"""
+    try:
+        logger.info("Public debug workspaces called")
+        
+        # Get workspace repository
+        repo = get_workspace_repo()
+        
+        # Get all workspaces (for debugging)
+        all_workspaces = await repo.get_all()
+        
+        return {
+            "success": True,
+            "message": "Public debug workspaces endpoint working",
+            "total_workspaces": len(all_workspaces),
+            "workspaces": [
+                {
+                    "id": ws.get('id'),
+                    "name": ws.get('display_name', ws.get('name')),
+                    "is_active": ws.get('is_active', False)
+                }
+                for ws in all_workspaces[:5]  # Limit to first 5 for debugging
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error in public_debug_workspaces: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "message": "Public debug endpoint failed"
+        }
 
 
 class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreate, WorkspaceUpdate]):
@@ -246,7 +353,7 @@ workspaces_endpoint = WorkspacesEndpoint()
 # WORKSPACE MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("/", 
+@router.get("/all", 
             response_model=PaginatedResponse,
             summary="Get workspaces",
             description="Get paginated list of workspaces")
@@ -255,20 +362,33 @@ async def get_workspaces(
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     search: Optional[str] = Query(None, description="Search by name or description"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get workspaces with pagination and filtering"""
-    filters = {}
-    if is_active is not None:
-        filters['is_active'] = is_active
-    
-    return await workspaces_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        search=search,
-        filters=filters,
-        current_user=current_user
-    )
+    try:
+        logger.info(f"Workspaces endpoint called by user: {current_user.get('id')}")
+        
+        filters = {}
+        if is_active is not None:
+            filters['is_active'] = is_active
+        
+        result = await workspaces_endpoint.get_items(
+            page=page,
+            page_size=page_size,
+            search=search,
+            filters=filters,
+            current_user=current_user
+        )
+        
+        logger.info(f"Workspaces returned: {len(result.data) if result.data else 0}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in get_workspaces: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get workspaces: {str(e)}"
+        )
 
 
 @router.post("/", 
