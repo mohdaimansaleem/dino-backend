@@ -110,7 +110,7 @@ async def register_workspace(registration_data: WorkspaceRegistration):
             "name": registration_data.venue_name,
             "description": registration_data.venue_description,
             "location": registration_data.venue_location.dict(),
-            "mobile_number": venue_mobile,
+            "phone": venue_mobile,
             "email": registration_data.venue_email or registration_data.owner_email,
             "website": registration_data.venue_website,
             "cuisine_types": [],
@@ -139,7 +139,7 @@ async def register_workspace(registration_data: WorkspaceRegistration):
         user_data = {
             "id": user_id,
             "email": registration_data.owner_email,
-            "mobile_number": owner_mobile,
+            "phone": owner_mobile,
             "first_name": registration_data.owner_first_name,
             "last_name": registration_data.owner_last_name,
             "hashed_password": hashed_password,

@@ -18,7 +18,11 @@ from app.api.v1.endpoints import (
     auth,
     health,
     roles,
-    permissions
+    permissions,
+    dashboard,
+    user_preferences,
+    venue_status,
+    table_areas
 )
 
 api_router = APIRouter()
@@ -152,6 +156,62 @@ api_router.include_router(
         403: {"description": "Access denied"},
         401: {"description": "Authentication required"},
         400: {"description": "Invalid permission data"}
+    }
+)
+
+# =============================================================================
+# DASHBOARD ENDPOINTS
+# =============================================================================
+
+# Dashboard Management
+api_router.include_router(
+    dashboard.router, 
+    tags=["dashboard"],
+    responses={
+        404: {"description": "Dashboard data not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"},
+        400: {"description": "No venue assigned"}
+    }
+)
+
+# =============================================================================
+# ADDITIONAL UTILITY ENDPOINTS
+# =============================================================================
+
+# User Preferences and Addresses
+api_router.include_router(
+    user_preferences.router, 
+    prefix="/users", 
+    tags=["user-preferences"],
+    responses={
+        404: {"description": "User not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"}
+    }
+)
+
+# Venue Status Management
+api_router.include_router(
+    venue_status.router, 
+    prefix="/venues", 
+    tags=["venue-status"],
+    responses={
+        404: {"description": "Venue not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"}
+    }
+)
+
+# Table Areas Management
+api_router.include_router(
+    table_areas.router, 
+    prefix="/tables", 
+    tags=["table-areas"],
+    responses={
+        404: {"description": "Area not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"}
     }
 )
 

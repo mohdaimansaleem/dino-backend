@@ -232,7 +232,7 @@ class Workspace(WorkspaceBase, TimestampMixin):
 class UserBase(BaseSchema):
     """Base user schema"""
     email: EmailStr
-    mobile_number: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$", description="Unique mobile number")
+    phone: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$", description="Unique phone number")
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
 
@@ -270,7 +270,7 @@ class UserUpdate(BaseSchema):
     """Schema for updating users"""
     first_name: Optional[str] = Field(None, min_length=1, max_length=50)
     last_name: Optional[str] = Field(None, min_length=1, max_length=50)
-    mobile_number: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
+    phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
     is_active: Optional[bool] = None
 
 class User(UserBase, TimestampMixin):
@@ -291,7 +291,7 @@ class VenueBase(BaseSchema):
     name: str = Field(..., min_length=1, max_length=100)
     description: str = Field(..., max_length=1000)
     location: VenueLocation
-    mobile_number: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
+    phone: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
     email: Optional[EmailStr] = None
     website: Optional[str] = None
     cuisine_types: List[str] = Field(default_factory=list)
@@ -317,7 +317,7 @@ class VenueUpdate(BaseSchema):
     """Schema for updating venues"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=1000)
-    mobile_number: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
+    phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
     email: Optional[EmailStr] = None
     website: Optional[str] = None
     logo_url: Optional[str] = None
@@ -345,7 +345,7 @@ class VenuePublicInfo(BaseModel):
     description: Optional[str] = None
     cuisine_types: List[str] = Field(default_factory=list)
     location: VenueLocation
-    mobile_number: str
+    phone: str
     website: Optional[str] = None
     price_range: Optional[str] = None
     features: List[str] = Field(default_factory=list)
@@ -445,7 +445,7 @@ class Table(TableBase, TimestampMixin):
 class CustomerBase(BaseSchema):
     """Base customer schema"""
     name: str = Field(..., min_length=1, max_length=100)
-    mobile_number: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
+    phone: str = Field(..., pattern="^[+]?[1-9]?[0-9]{7,15}$")
 
 class CustomerCreate(CustomerBase):
     """Schema for creating customers"""
@@ -454,7 +454,7 @@ class CustomerCreate(CustomerBase):
 class CustomerUpdate(BaseSchema):
     """Schema for updating customers"""
     name: Optional[str] = Field(None, min_length=1, max_length=100)
-    mobile_number: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
+    phone: Optional[str] = Field(None, pattern="^[+]?[1-9]?[0-9]{7,15}$")
 
 class Customer(CustomerBase, TimestampMixin):
     """Complete customer schema"""
@@ -676,7 +676,7 @@ class UserDetails(BaseModel):
     """Owner/SuperAdmin details for workspace creation"""
     full_name: str = Field(..., min_length=2, max_length=100)
     email: EmailStr
-    mobile_number: str = Field(..., min_length=10, max_length=20)
+    phone: str = Field(..., min_length=10, max_length=20)
     password: str = Field(..., min_length=8, max_length=128)
     date_of_birth: Optional[datetime] = None
     address: Optional[str] = Field(None, max_length=500)

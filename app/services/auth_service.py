@@ -114,7 +114,7 @@ class AuthService:
             # Create user data
             user_dict = {
                 "email": user_data.email,
-                "mobile_number": user_data.mobile_number,
+                "phone": user_data.phone,
                 "first_name": user_data.first_name,
                 "last_name": user_data.last_name,
                 "role_id": role_id,
@@ -209,7 +209,7 @@ class AuthService:
             user_response = User(
                 id=user["id"],
                 email=user["email"],
-                mobile_number=user["mobile_number"],
+                phone=user["phone"],
                 first_name=user["first_name"],
                 last_name=user["last_name"],
                 role_id=user.get("role_id"),
@@ -338,7 +338,7 @@ class AuthService:
             user_response = User(
                 id=user["id"],
                 email=user["email"],
-                mobile_number=user["mobile_number"],
+                phone=user["phone"],
                 first_name=user["first_name"],
                 last_name=user["last_name"],
                 role_id=user.get("role_id"),

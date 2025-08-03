@@ -12,6 +12,7 @@ from app.models.schemas import (
     Table, TableCreate, TableUpdate, TableStatus,
     ApiResponse, PaginatedResponse, QRCodeData
 )
+from pydantic import BaseModel
 # Removed base endpoint dependency
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_table_repo, TableRepository
@@ -313,23 +314,26 @@ async def delete_table(
 # TABLE STATUS MANAGEMENT ENDPOINTS
 # =============================================================================
 
+class TableStatusUpdate(BaseModel):
+    new_status: TableStatus
+
 @router.put("/{table_id}/status", 
             response_model=ApiResponse,
             summary="Update table status",
             description="Update table status (available, occupied, etc.)")
 async def update_table_status(
     table_id: str,
-    new_status: TableStatus,
+    status_update: TableStatusUpdate,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update table status"""
     try:
-        success = await tables_endpoint.update_table_status(table_id, new_status, current_user)
+        success = await tables_endpoint.update_table_status(table_id, status_update.new_status, current_user)
         
         if success:
             return ApiResponse(
                 success=True,
-                message=f"Table status updated to {new_status.value}"
+                message=f"Table status updated to {status_update.new_status.value}"
             )
         else:
             raise HTTPException(
