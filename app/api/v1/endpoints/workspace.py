@@ -708,6 +708,216 @@ workspaces_endpoint = WorkspacesEndpoint()
 
 
 
+@router.get("/", 
+
+      response_model=PaginatedResponse,
+
+      summary="Get workspaces (default)",
+
+      description="Get paginated list of workspaces - default endpoint")
+
+async def get_workspaces_default(
+
+  page: int = Query(1, ge=1, description="Page number"),
+
+  page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+
+  search: Optional[str] = Query(None, description="Search by name or description"),
+
+  is_active: Optional[bool] = Query(None, description="Filter by active status"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
+):
+
+  """Get workspaces with pagination and filtering - default endpoint"""
+
+  try:
+
+    logger.info(f"Default workspaces endpoint called by user: {current_user.get('id')}")
+
+     
+
+    filters = {}
+
+    if is_active is not None:
+
+      filters['is_active'] = is_active
+
+     
+
+    result = await workspaces_endpoint.get_items(
+
+      page=page,
+
+      page_size=page_size,
+
+      search=search,
+
+      filters=filters,
+
+      current_user=current_user
+
+    )
+
+     
+
+    logger.info(f"Workspaces returned: {len(result.data) if result.data else 0}")
+
+    return result
+
+     
+
+  except Exception as e:
+
+    logger.error(f"Error in get_workspaces_default: {str(e)}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail=f"Failed to get workspaces: {str(e)}"
+
+    )
+
+
+
+
+
+@router.get("/debug", 
+
+      summary="Debug workspaces endpoint",
+
+      description="Debug endpoint to check workspace access with authentication")
+
+async def debug_workspaces(
+
+  current_user: Dict[str, Any] = Depends(get_current_user_optional)
+
+):
+
+  """Debug endpoint to check workspace access"""
+
+  try:
+
+    logger.info(f"Debug workspaces endpoint called")
+
+     
+
+    if not current_user:
+
+      return {
+
+        "success": False,
+
+        "message": "No authentication provided",
+
+        "authenticated": False
+
+      }
+
+     
+
+    logger.info(f"Debug workspaces endpoint called by user: {current_user.get('id')}")
+
+     
+
+    # Get workspace repository
+
+    repo = get_workspace_repo()
+
+     
+
+    # Get all workspaces (for debugging)
+
+    all_workspaces = await repo.get_all()
+
+     
+
+    # Get user role
+
+    from app.core.security import _get_user_role
+
+    user_role = await _get_user_role(current_user)
+
+     
+
+    return {
+
+      "success": True,
+
+      "message": "Debug workspaces endpoint working",
+
+      "authenticated": True,
+
+      "user_id": current_user.get('id'),
+
+      "user_role": user_role,
+
+      "user_workspace_id": current_user.get('workspace_id'),
+
+      "total_workspaces": len(all_workspaces),
+
+      "workspaces": [
+
+        {
+
+          "id": ws.get('id'),
+
+          "name": ws.get('display_name', ws.get('name')),
+
+          "is_active": ws.get('is_active', False)
+
+        }
+
+        for ws in all_workspaces[:5] # Limit to first 5 for debugging
+
+      ]
+
+    }
+
+  except Exception as e:
+
+    logger.error(f"Error in debug_workspaces: {str(e)}")
+
+    return {
+
+      "success": False,
+
+      "error": str(e),
+
+      "message": "Debug endpoint failed"
+
+    }
+
+
+
+@router.post("/", 
+
+       response_model=ApiResponse,
+
+       status_code=status.HTTP_201_CREATED,
+
+       summary="Create workspace",
+
+       description="Create a new workspace")
+
+async def create_workspace(
+
+  workspace_data: WorkspaceCreate,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
+):
+
+  """Create a new workspace"""
+
+  return await workspaces_endpoint.create_item(workspace_data, current_user)
+
+
+
+
+
 @router.get("/all", 
 
       response_model=PaginatedResponse,
@@ -784,27 +994,7 @@ async def get_workspaces(
 
 
 
-@router.post("/", 
 
-       response_model=ApiResponse,
-
-       status_code=status.HTTP_201_CREATED,
-
-       summary="Create workspace",
-
-       description="Create a new workspace")
-
-async def create_workspace(
-
-  workspace_data: WorkspaceCreate,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
-):
-
-  """Create a new workspace"""
-
-  return await workspaces_endpoint.create_item(workspace_data, current_user)
 
 
 

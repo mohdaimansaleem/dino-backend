@@ -178,29 +178,59 @@ async def get_current_user(user_id: str = Depends(get_current_user_id)):
 
   from app.database.firestore import get_user_repo
 
-   
-
-  user_repo = get_user_repo()
-
-  user_data = await user_repo.get_by_id(user_id)
+  from app.core.logging_config import get_logger
 
    
 
-  if user_data is None:
+  logger = get_logger(__name__)
+
+   
+
+  try:
+
+    user_repo = get_user_repo()
+
+    user_data = await user_repo.get_by_id(user_id)
+
+     
+
+    if user_data is None:
+
+      logger.warning(f"User not found in database: {user_id}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_401_UNAUTHORIZED,
+
+        detail="User not found",
+
+        headers={"WWW-Authenticate": "Bearer"},
+
+      )
+
+     
+
+    logger.debug(f"User authenticated successfully: {user_id}")
+
+    return user_data
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting current user: {e}")
 
     raise HTTPException(
 
-      status_code=status.HTTP_401_UNAUTHORIZED,
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="User not found",
-
-      headers={"WWW-Authenticate": "Bearer"},
+      detail="Authentication service error"
 
     )
-
-   
-
-  return user_data
 
 
 
