@@ -5,9 +5,13 @@ Comprehensive permission management with role mapping
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer
+from datetime import datetime
 
-from app.models.schemas import (
-    ApiResponse, PaginatedResponse
+from app.models.dto import (
+    ApiResponseDTO as ApiResponse, PaginatedResponseDTO as PaginatedResponse,
+    PermissionCreateDTO, PermissionUpdateDTO, PermissionResponseDTO, PermissionFiltersDTO,
+    PermissionCategoryDTO, PermissionMatrixDTO, PermissionStatisticsDTO,
+    BulkPermissionCreateDTO, BulkPermissionResponseDTO, NameAvailabilityDTO
 )
 from app.database.firestore import get_firestore_client
 from app.core.security import get_current_user, get_current_admin_user
@@ -17,89 +21,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 security = HTTPBearer()
 
-# =============================================================================
-# PYDANTIC SCHEMAS FOR PERMISSIONS
-# =============================================================================
-
-from pydantic import BaseModel, Field, validator
-from datetime import datetime
-from enum import Enum
-
-class PermissionBase(BaseModel):
-    """Base permission schema"""
-    name: str = Field(..., min_length=1, max_length=100, description="Permission name")
-    description: str = Field(..., max_length=500, description="Permission description")
-    resource: str = Field(..., pattern="^(workspace|venue|menu|order|user|analytics|table)$", description="Resource type")
-    action: str = Field(..., pattern="^(create|read|update|delete|manage)$", description="Action type")
-    scope: str = Field(..., pattern="^(own|venue|workspace|all)$", description="Permission scope")
-
-    @validator('name')
-    def validate_name(cls, v):
-        if not v:
-            raise ValueError('Name is required')
-        # Allow resource.action format
-        import re
-        if not re.match(r'^[a-z]+\.[a-z]+$', v):
-            raise ValueError('Name must follow resource.action format (e.g., venue.read)')
-        return v
-
-class PermissionCreate(PermissionBase):
-    """Schema for creating permissions"""
-    pass
-
-class PermissionUpdate(BaseModel):
-    """Schema for updating permissions"""
-    description: Optional[str] = Field(None, max_length=500)
-
-class PermissionResponse(PermissionBase):
-    """Complete permission response schema"""
-    id: str
-    is_system_permission: bool = Field(default=True)
-    roles_count: int = Field(default=0, description="Number of roles with this permission")
-    created_at: datetime
-
-class PermissionFilters(BaseModel):
-    """Permission filtering options"""
-    name: Optional[str] = None
-    resource: Optional[str] = None
-    action: Optional[str] = None
-    scope: Optional[str] = None
-    search: Optional[str] = None
-
-class PermissionCategory(BaseModel):
-    """Permission category schema"""
-    name: str
-    display_name: str
-    description: str
-    permissions: List[PermissionResponse] = Field(default_factory=list)
-
-class PermissionMatrix(BaseModel):
-    """Permission matrix schema"""
-    resources: List[str] = Field(default_factory=list)
-    actions: List[str] = Field(default_factory=list)
-    matrix: Dict[str, Dict[str, Optional[PermissionResponse]]] = Field(default_factory=dict)
-
-class PermissionStatistics(BaseModel):
-    """Permission statistics schema"""
-    total_permissions: int = 0
-    system_permissions: int = 0
-    custom_permissions: int = 0
-    permissions_by_resource: Dict[str, int] = Field(default_factory=dict)
-    permissions_by_action: Dict[str, int] = Field(default_factory=dict)
-    permissions_by_category: Dict[str, int] = Field(default_factory=dict)
-    unused_permissions: int = 0
-
-class BulkPermissionCreate(BaseModel):
-    """Schema for bulk permission creation"""
-    permissions: List[PermissionCreate] = Field(..., min_items=1, max_items=100)
-
-class BulkPermissionResponse(BaseModel):
-    """Response for bulk operations"""
-    success: bool = True
-    created: int = 0
-    skipped: int = 0
-    errors: List[str] = Field(default_factory=list)
-    created_permissions: List[PermissionResponse] = Field(default_factory=list)
+# Schemas are now imported from centralized locations
 
 # =============================================================================
 # PERMISSION REPOSITORY
@@ -289,8 +211,6 @@ class PermissionRepository:
         
         stats = {
             "total_permissions": len(permissions),
-            "system_permissions": len([p for p in permissions if p.get('is_system_permission', False)]),
-            "custom_permissions": len([p for p in permissions if not p.get('is_system_permission', False)]),
             "permissions_by_resource": {},
             "permissions_by_action": {},
             "permissions_by_category": {},
@@ -394,7 +314,7 @@ async def get_permissions(
         for perm in permissions:
             roles = await perm_repo.get_roles_with_permission(perm['id'])
             
-            perm_response = PermissionResponse(
+            perm_response = PermissionResponseDTO(
                 **perm,
                 roles_count=len(roles)
             )
@@ -431,7 +351,7 @@ async def get_permissions(
              summary="Create permission",
              description="Create a new permission (NO AUTH - TESTING ONLY)")
 async def create_permission(
-    permission_data: PermissionCreate
+    permission_data: PermissionCreateDTO
     # current_user: Dict[str, Any] = Depends(get_current_admin_user)  # REMOVED FOR TESTING
 ):
     """Create a new permission"""
@@ -453,7 +373,7 @@ async def create_permission(
         # Get created permission
         created_permission = await perm_repo.get_by_id(perm_id)
         
-        perm_response = PermissionResponse(
+        perm_response = PermissionResponseDTO(
             **created_permission,
             roles_count=0
         )
@@ -475,7 +395,7 @@ async def create_permission(
         )
 
 @router.get("/{permission_id}", 
-            response_model=PermissionResponse,
+            response_model=PermissionResponseDTO,
             summary="Get permission by ID",
             description="Get specific permission by ID")
 async def get_permission(
@@ -495,7 +415,7 @@ async def get_permission(
         # Get roles count
         roles = await perm_repo.get_roles_with_permission(permission_id)
         
-        perm_response = PermissionResponse(
+        perm_response = PermissionResponseDTO(
             **permission,
             roles_count=len(roles)
         )
@@ -517,7 +437,7 @@ async def get_permission(
             description="Update permission information")
 async def update_permission(
     permission_id: str,
-    update_data: PermissionUpdate,
+    update_data: PermissionUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update permission"""
@@ -541,16 +461,10 @@ async def update_permission(
                 detail="Only superadmin can update permissions"
             )
         
-        # Prevent updating system permissions (redundant check since only superadmin can update)
-        if permission.get('is_system_permission', False) and user_role != 'superadmin':
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot update system permissions"
-            )
+
         
         # Update permission
         update_dict = update_data.dict(exclude_unset=True)
-        update_dict['updated_by'] = current_user['id']
         
         await perm_repo.update(permission_id, update_dict)
         
@@ -558,7 +472,7 @@ async def update_permission(
         updated_permission = await perm_repo.get_by_id(permission_id)
         roles = await perm_repo.get_roles_with_permission(permission_id)
         
-        perm_response = PermissionResponse(
+        perm_response = PermissionResponseDTO(
             **updated_permission,
             roles_count=len(roles)
         )
@@ -608,12 +522,7 @@ async def delete_permission(
                 detail="Only superadmin can delete permissions"
             )
         
-        # Prevent deleting system permissions
-        if permission.get('is_system_permission', False):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot delete system permissions"
-            )
+
         
         # Check if permission is assigned to any roles
         roles = await perm_repo.get_roles_with_permission(permission_id)
@@ -646,7 +555,7 @@ async def delete_permission(
 # =============================================================================
 
 @router.get("/by-category", 
-            response_model=List[PermissionCategory],
+            response_model=List[PermissionCategoryDTO],
             summary="Get permissions by category",
             description="Get permissions grouped by category")
 async def get_permissions_by_category(
@@ -662,11 +571,11 @@ async def get_permissions_by_category(
         category_responses = []
         for cat in categories:
             permissions = [
-                PermissionResponse(**perm, roles_count=0) 
+                PermissionResponseDTO(**perm, roles_count=0) 
                 for perm in cat['permissions']
             ]
             category_responses.append(
-                PermissionCategory(
+                PermissionCategoryDTO(
                     name=cat['name'],
                     display_name=cat['display_name'],
                     description=cat['description'],
@@ -684,7 +593,7 @@ async def get_permissions_by_category(
         )
 
 @router.get("/matrix", 
-            response_model=PermissionMatrix,
+            response_model=PermissionMatrixDTO,
             summary="Get permission matrix",
             description="Get permission matrix (resources vs actions)")
 async def get_permission_matrix(
@@ -702,11 +611,11 @@ async def get_permission_matrix(
             matrix[resource] = {}
             for action, perm in actions.items():
                 if perm:
-                    matrix[resource][action] = PermissionResponse(**perm, roles_count=0)
+                    matrix[resource][action] = PermissionResponseDTO(**perm, roles_count=0)
                 else:
                     matrix[resource][action] = None
         
-        return PermissionMatrix(
+        return PermissionMatrixDTO(
             resources=matrix_data['resources'],
             actions=matrix_data['actions'],
             matrix=matrix
@@ -758,11 +667,11 @@ async def get_actions():
 # =============================================================================
 
 @router.post("/bulk-create", 
-             response_model=BulkPermissionResponse,
+             response_model=BulkPermissionResponseDTO,
              summary="Bulk create permissions",
              description="Create multiple permissions at once")
 async def bulk_create_permissions(
-    bulk_data: BulkPermissionCreate,
+    bulk_data: BulkPermissionCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Bulk create permissions"""
@@ -771,8 +680,6 @@ async def bulk_create_permissions(
         permissions_data = []
         for perm in bulk_data.permissions:
             perm_dict = perm.dict()
-            perm_dict['workspace_id'] = perm.workspace_id or current_user.get('workspace_id')
-            perm_dict['created_by'] = current_user['id']
             permissions_data.append(perm_dict)
         
         # Bulk create
@@ -780,13 +687,13 @@ async def bulk_create_permissions(
         
         # Convert created permissions to response format
         created_permissions = [
-            PermissionResponse(**perm, roles_count=0)
+            PermissionResponseDTO(**perm, roles_count=0)
             for perm in result['created_permissions']
         ]
         
         logger.info(f"Bulk permission creation: {result['created']} created, {result['skipped']} skipped by {current_user['id']}")
         
-        return BulkPermissionResponse(
+        return BulkPermissionResponseDTO(
             success=True,
             created=result['created'],
             skipped=result['skipped'],
@@ -806,7 +713,7 @@ async def bulk_create_permissions(
 # =============================================================================
 
 @router.get("/statistics", 
-            response_model=PermissionStatistics,
+            response_model=PermissionStatisticsDTO,
             summary="Get permission statistics",
             description="Get comprehensive permission statistics")
 async def get_permission_statistics(
@@ -817,7 +724,7 @@ async def get_permission_statistics(
         # Workspace filtering removed for open API
         
         stats = await perm_repo.get_permission_statistics(workspace_id)
-        return PermissionStatistics(**stats)
+        return PermissionStatisticsDTO(**stats)
         
     except Exception as e:
         logger.error(f"Error getting permission statistics: {e}")
@@ -855,7 +762,7 @@ async def check_permission_name_availability(
         )
 
 @router.get("/unused", 
-            response_model=List[PermissionResponse],
+            response_model=List[PermissionResponseDTO],
             summary="Get unused permissions",
             description="Get permissions not assigned to any role")
 async def get_unused_permissions(
@@ -878,7 +785,7 @@ async def get_unused_permissions(
             roles = await perm_repo.get_roles_with_permission(perm['id'])
             if not roles:
                 unused_permissions.append(
-                    PermissionResponse(**perm, roles_count=0)
+                    PermissionResponseDTO(**perm, roles_count=0)
                 )
         
         return unused_permissions
@@ -891,15 +798,369 @@ async def get_unused_permissions(
         )
 
 # =============================================================================
+# USER AND ROLE PERMISSION ENDPOINTS
+# =============================================================================
+
+@router.get("/users/{user_id}/permissions", 
+            response_model=ApiResponse,
+            summary="Get user permissions",
+            description="Get all permissions assigned to a user (through their role)")
+async def get_user_permissions(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get all permissions for a specific user"""
+    try:
+        # Get user repository
+        from app.database.firestore import get_user_repo
+        user_repo = get_user_repo()
+        
+        # Get user
+        user = await user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Open access - no role restrictions for testing/development
+        # Users can view any user's permissions (OPEN ACCESS)
+        can_view_permissions = True
+        
+        # Optional: Log access for monitoring
+        logger.info(f"User {current_user['id']} accessing permissions for user {user_id}")
+        
+        # Get user's role
+        user_role_id = user.get('role_id')
+        if not user_role_id:
+            # If user has no role, return empty permissions with role info
+            return ApiResponse(
+                success=True,
+                message="User permissions retrieved successfully",
+                data={
+                    "user_id": user_id,
+                    "user_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+                    "user_email": user.get('email'),
+                    "role": None,
+                    "permissions": [],
+                    "total_permissions": 0
+                }
+            )
+        
+        # Get role repository
+        from app.database.firestore import get_firestore_client
+        db = get_firestore_client()
+        
+        # Get role
+        role_doc = db.collection("roles").document(user_role_id).get()
+        if not role_doc.exists:
+            logger.warning(f"User {user_id} has invalid role_id: {user_role_id}")
+            return ApiResponse(
+                success=True,
+                message="User permissions retrieved successfully",
+                data={
+                    "user_id": user_id,
+                    "user_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+                    "user_email": user.get('email'),
+                    "role": {"id": user_role_id, "name": "Invalid Role", "exists": False},
+                    "permissions": [],
+                    "total_permissions": 0
+                }
+            )
+        
+        role_data = role_doc.to_dict()
+        permission_ids = role_data.get('permission_ids', [])
+        
+        # Get permissions
+        permissions = []
+        for perm_id in permission_ids:
+            permission = await perm_repo.get_by_id(perm_id)
+            if permission:
+                # Get roles count for this permission
+                roles = await perm_repo.get_roles_with_permission(perm_id)
+                perm_response = PermissionResponseDTO(
+                    **permission,
+                    roles_count=len(roles)
+                )
+                permissions.append(perm_response.dict())
+        
+        # Prepare response data
+        response_data = {
+            "user_id": user_id,
+            "user_name": f"{user.get('first_name', '')} {user.get('last_name', '')}".strip(),
+            "user_email": user.get('email'),
+            "role": {
+                "id": user_role_id,
+                "name": role_data.get('name', 'Unknown'),
+                "display_name": role_data.get('display_name', role_data.get('name', 'Unknown')),
+                "description": role_data.get('description', ''),
+                "exists": True
+            },
+            "permissions": permissions,
+            "total_permissions": len(permissions)
+        }
+        
+        logger.info(f"Retrieved {len(permissions)} permissions for user {user_id}")
+        return ApiResponse(
+            success=True,
+            message="User permissions retrieved successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user permissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user permissions"
+        )
+
+@router.get("/roles/{role_id}/permissions", 
+            response_model=ApiResponse,
+            summary="Get role permissions",
+            description="Get all permissions assigned to a specific role")
+async def get_role_permissions(
+    role_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get all permissions for a specific role"""
+    try:
+        # Open access - no role restrictions for testing/development
+        # Any authenticated user can view role permissions (OPEN ACCESS)
+        logger.info(f"User {current_user['id']} accessing permissions for role {role_id}")
+        
+        # Get role repository
+        from app.database.firestore import get_firestore_client
+        db = get_firestore_client()
+        
+        # Get role
+        role_doc = db.collection("roles").document(role_id).get()
+        if not role_doc.exists:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Role not found"
+            )
+        
+        role_data = role_doc.to_dict()
+        permission_ids = role_data.get('permission_ids', [])
+        
+        # Get permissions
+        permissions = []
+        missing_permissions = []
+        
+        for perm_id in permission_ids:
+            permission = await perm_repo.get_by_id(perm_id)
+            if permission:
+                # Get roles count for this permission
+                roles = await perm_repo.get_roles_with_permission(perm_id)
+                perm_response = PermissionResponseDTO(
+                    **permission,
+                    roles_count=len(roles)
+                )
+                permissions.append(perm_response.dict())
+            else:
+                missing_permissions.append(perm_id)
+                logger.warning(f"Permission {perm_id} not found for role {role_id}")
+        
+        # Get users count for this role
+        users_with_role = list(db.collection("users").where("role_id", "==", role_id).stream())
+        users_count = len(users_with_role)
+        
+        # Prepare response data
+        response_data = {
+            "role_id": role_id,
+            "role_name": role_data.get('name', 'Unknown'),
+            "role_display_name": role_data.get('display_name', role_data.get('name', 'Unknown')),
+            "role_description": role_data.get('description', ''),
+            "permissions": permissions,
+            "total_permissions": len(permissions),
+            "users_with_role": users_count,
+            "missing_permissions": missing_permissions if missing_permissions else None
+        }
+        
+        logger.info(f"Retrieved {len(permissions)} permissions for role {role_id}")
+        return ApiResponse(
+            success=True,
+            message="Role permissions retrieved successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting role permissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get role permissions"
+        )
+
+@router.get("/me/permissions", 
+            response_model=List[PermissionResponseDTO],
+            summary="Get current user permissions",
+            description="Get all permissions for the currently authenticated user")
+async def get_my_permissions(
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get permissions for the current user"""
+    return await get_user_permissions(current_user['id'], current_user)
+
+@router.get("/users/{user_id}/permissions/detailed", 
+            response_model=Dict[str, Any],
+            summary="Get user permissions with role info",
+            description="Get user permissions along with role information")
+async def get_user_permissions_detailed(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get user permissions with detailed role information"""
+    try:
+        # Get user repository
+        from app.database.firestore import get_user_repo
+        user_repo = get_user_repo()
+        
+        # Get user
+        user = await user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Check permissions
+        if user_id != current_user['id']:
+            from app.core.security import _get_user_role
+            user_role = await _get_user_role(current_user)
+            if user_role not in ['admin', 'superadmin']:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Not authorized to view this user's permissions"
+                )
+        
+        # Get user's role
+        user_role_id = user.get('role_id')
+        if not user_role_id:
+            return {
+                "user_id": user_id,
+                "role": None,
+                "permissions": [],
+                "total_permissions": 0
+            }
+        
+        # Get role repository
+        from app.database.firestore import get_firestore_client
+        db = get_firestore_client()
+        
+        # Get role
+        role_doc = db.collection("roles").document(user_role_id).get()
+        if not role_doc.exists:
+            return {
+                "user_id": user_id,
+                "role": {"id": user_role_id, "name": "Invalid Role", "exists": False},
+                "permissions": [],
+                "total_permissions": 0
+            }
+        
+        role_data = role_doc.to_dict()
+        permission_ids = role_data.get('permission_ids', [])
+        
+        # Get permissions
+        permissions = []
+        for perm_id in permission_ids:
+            permission = await perm_repo.get_by_id(perm_id)
+            if permission:
+                roles = await perm_repo.get_roles_with_permission(perm_id)
+                perm_response = PermissionResponseDTO(
+                    **permission,
+                    roles_count=len(roles)
+                )
+                permissions.append(perm_response.dict())
+        
+        return {
+            "user_id": user_id,
+            "role": {
+                "id": user_role_id,
+                "name": role_data.get('name', 'Unknown'),
+                "display_name": role_data.get('display_name', role_data.get('name', 'Unknown')),
+                "description": role_data.get('description', ''),
+                "exists": True
+            },
+            "permissions": permissions,
+            "total_permissions": len(permissions)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting detailed user permissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get detailed user permissions"
+        )
+
+@router.post("/users/{user_id}/permissions/check", 
+             response_model=ApiResponse,
+             summary="Check user permissions",
+             description="Check if user has specific permissions")
+async def check_user_permissions(
+    user_id: str,
+    permission_names: List[str],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Check if user has specific permissions"""
+    try:
+        # Open access - no role restrictions for testing/development
+        # Any authenticated user can check any user's permissions (OPEN ACCESS)
+        can_check_permissions = True
+        
+        logger.info(f"User {current_user['id']} checking permissions for user {user_id}")
+        
+        # Get user permissions (this returns ApiResponse now)
+        user_perms_response = await get_user_permissions(user_id, current_user)
+        user_permissions_data = user_perms_response.data
+        user_permission_names = [perm['name'] for perm in user_permissions_data.get('permissions', [])]
+        
+        # Check each requested permission
+        permission_check = {}
+        for perm_name in permission_names:
+            permission_check[perm_name] = perm_name in user_permission_names
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_permissions_data.get('user_name'),
+            "role": user_permissions_data.get('role'),
+            "requested_permissions": permission_names,
+            "permission_results": permission_check,
+            "has_all_permissions": all(permission_check.values()),
+            "has_any_permissions": any(permission_check.values()),
+            "missing_permissions": [perm for perm, has_perm in permission_check.items() if not has_perm]
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="Permission check completed successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking user permissions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check user permissions"
+        )
+
+# =============================================================================
 # SETUP ENDPOINTS (NO AUTHENTICATION)
 # =============================================================================
 
 @router.post("/setup/bulk-create", 
-             response_model=BulkPermissionResponse,
+             response_model=BulkPermissionResponseDTO,
              summary="Setup: Bulk create permissions",
              description="Create multiple permissions at once (NO AUTH - SETUP ONLY)")
 async def setup_bulk_create_permissions(
-    bulk_data: BulkPermissionCreate
+    bulk_data: BulkPermissionCreateDTO
     # NO AUTHENTICATION FOR SETUP
 ):
     """Bulk create permissions for system setup (NO AUTH)"""
@@ -908,8 +1169,6 @@ async def setup_bulk_create_permissions(
         permissions_data = []
         for perm in bulk_data.permissions:
             perm_dict = perm.dict()
-            perm_dict['created_by'] = 'system_setup'
-            perm_dict['is_system_permission'] = True
             permissions_data.append(perm_dict)
         
         # Bulk create
@@ -917,13 +1176,13 @@ async def setup_bulk_create_permissions(
         
         # Convert created permissions to response format
         created_permissions = [
-            PermissionResponse(**perm, roles_count=0)
+            PermissionResponseDTO(**perm, roles_count=0)
             for perm in result['created_permissions']
         ]
         
         logger.info(f"Setup bulk permission creation: {result['created']} created, {result['skipped']} skipped")
         
-        return BulkPermissionResponse(
+        return BulkPermissionResponseDTO(
             success=True,
             created=result['created'],
             skipped=result['skipped'],
@@ -944,7 +1203,7 @@ async def setup_bulk_create_permissions(
              summary="Setup: Create single permission",
              description="Create a single permission (NO AUTH - SETUP ONLY)")
 async def setup_create_permission(
-    permission_data: PermissionCreate
+    permission_data: PermissionCreateDTO
     # NO AUTHENTICATION FOR SETUP
 ):
     """Create a single permission for system setup (NO AUTH)"""
@@ -959,8 +1218,6 @@ async def setup_create_permission(
         
         # Prepare permission data for setup
         perm_dict = permission_data.dict()
-        perm_dict['created_by'] = 'system_setup'
-        perm_dict['is_system_permission'] = True
         
         # Create permission
         perm_id = await perm_repo.create(perm_dict)
@@ -968,7 +1225,7 @@ async def setup_create_permission(
         # Get created permission
         created_permission = await perm_repo.get_by_id(perm_id)
         
-        perm_response = PermissionResponse(
+        perm_response = PermissionResponseDTO(
             **created_permission,
             roles_count=0
         )
@@ -987,4 +1244,210 @@ async def setup_create_permission(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create permission: {str(e)}"
+        )
+
+# =============================================================================
+# ADDITIONAL PERMISSION UTILITY ENDPOINTS
+# =============================================================================
+
+@router.get("/users/{user_id}/permissions/summary", 
+            response_model=ApiResponse,
+            summary="Get user permissions summary",
+            description="Get a summary of user permissions grouped by resource")
+async def get_user_permissions_summary(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get user permissions summary grouped by resource"""
+    try:
+        # Check authorization (reuse logic from get_user_permissions)
+        can_view_permissions = False
+        
+        # Open access - no role restrictions for testing/development
+        can_view_permissions = True
+        
+        logger.info(f"User {current_user['id']} accessing permissions summary for user {user_id}")
+        
+        # Get user permissions
+        user_perms_response = await get_user_permissions(user_id, current_user)
+        user_permissions_data = user_perms_response.data
+        permissions = user_permissions_data.get('permissions', [])
+        
+        # Group permissions by resource
+        permissions_by_resource = {}
+        for perm in permissions:
+            resource = perm.get('resource', 'unknown')
+            if resource not in permissions_by_resource:
+                permissions_by_resource[resource] = {
+                    'resource': resource,
+                    'permissions': [],
+                    'actions': []
+                }
+            permissions_by_resource[resource]['permissions'].append(perm)
+            permissions_by_resource[resource]['actions'].append(perm.get('action', 'unknown'))
+        
+        # Convert to list and sort
+        summary = list(permissions_by_resource.values())
+        summary.sort(key=lambda x: x['resource'])
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_permissions_data.get('user_name'),
+            "role": user_permissions_data.get('role'),
+            "total_permissions": len(permissions),
+            "resources_count": len(summary),
+            "permissions_by_resource": summary
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="User permissions summary retrieved successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting user permissions summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get user permissions summary"
+        )
+
+@router.get("/roles/{role_id}/permissions/summary", 
+            response_model=ApiResponse,
+            summary="Get role permissions summary",
+            description="Get a summary of role permissions grouped by resource")
+async def get_role_permissions_summary(
+    role_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get role permissions summary grouped by resource"""
+    try:
+        # Open access - no role restrictions for testing/development
+        # Any authenticated user can view role permissions summary (OPEN ACCESS)
+        logger.info(f"User {current_user['id']} accessing permissions summary for role {role_id}")
+        
+        # Get role permissions
+        role_perms_response = await get_role_permissions(role_id, current_user)
+        role_permissions_data = role_perms_response.data
+        permissions = role_permissions_data.get('permissions', [])
+        
+        # Group permissions by resource
+        permissions_by_resource = {}
+        for perm in permissions:
+            resource = perm.get('resource', 'unknown')
+            if resource not in permissions_by_resource:
+                permissions_by_resource[resource] = {
+                    'resource': resource,
+                    'permissions': [],
+                    'actions': []
+                }
+            permissions_by_resource[resource]['permissions'].append(perm)
+            permissions_by_resource[resource]['actions'].append(perm.get('action', 'unknown'))
+        
+        # Convert to list and sort
+        summary = list(permissions_by_resource.values())
+        summary.sort(key=lambda x: x['resource'])
+        
+        response_data = {
+            "role_id": role_id,
+            "role_name": role_permissions_data.get('role_name'),
+            "role_description": role_permissions_data.get('role_description'),
+            "total_permissions": len(permissions),
+            "resources_count": len(summary),
+            "users_with_role": role_permissions_data.get('users_with_role'),
+            "permissions_by_resource": summary
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="Role permissions summary retrieved successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting role permissions summary: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get role permissions summary"
+        )
+
+@router.post("/validate-access", 
+             response_model=ApiResponse,
+             summary="Validate user access",
+             description="Validate if a user has access to perform specific actions")
+async def validate_user_access(
+    user_id: str,
+    resource: str,
+    action: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Validate if user has access to perform a specific action on a resource"""
+    try:
+        # Open access - no role restrictions for testing/development
+        # Any authenticated user can validate any user's access (OPEN ACCESS)
+        can_validate_access = True
+        
+        logger.info(f"User {current_user['id']} validating access for user {user_id}")
+        
+        # Get user permissions
+        user_perms_response = await get_user_permissions(user_id, current_user)
+        user_permissions_data = user_perms_response.data
+        permissions = user_permissions_data.get('permissions', [])
+        
+        # Check for specific permission
+        permission_name = f"{resource}.{action}"
+        has_permission = any(
+            perm.get('name') == permission_name or 
+            (perm.get('resource') == resource and perm.get('action') == action)
+            for perm in permissions
+        )
+        
+        # Also check for wildcard permissions
+        wildcard_permissions = [
+            f"{resource}.*",
+            f"*.{action}",
+            "*.*"
+        ]
+        
+        has_wildcard = any(
+            perm.get('name') in wildcard_permissions
+            for perm in permissions
+        )
+        
+        has_access = has_permission or has_wildcard
+        
+        response_data = {
+            "user_id": user_id,
+            "user_name": user_permissions_data.get('user_name'),
+            "role": user_permissions_data.get('role'),
+            "resource": resource,
+            "action": action,
+            "permission_name": permission_name,
+            "has_access": has_access,
+            "access_type": "direct" if has_permission else ("wildcard" if has_wildcard else "none"),
+            "matching_permissions": [
+                perm for perm in permissions 
+                if perm.get('name') == permission_name or 
+                   (perm.get('resource') == resource and perm.get('action') == action) or
+                   perm.get('name') in wildcard_permissions
+            ]
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="Access validation completed successfully",
+            data=response_data
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating user access: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to validate user access"
         )

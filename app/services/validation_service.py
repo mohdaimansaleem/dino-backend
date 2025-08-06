@@ -17,7 +17,7 @@ class ValidationService:
     
     def __init__(self):
         self.email_pattern = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
-        self.mobile_pattern = re.compile(r'^\+?[1-9]\d{1,14}$')  # E.164 format
+        self.mobile_pattern = re.compile(r'^[0-9]{10}$')  # Exactly 10 digits
         self.password_pattern = re.compile(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$')
     
     async def validate_user_data(self, user_data: Dict[str, Any], is_update: bool = False) -> List[str]:
@@ -41,17 +41,17 @@ class ValidationService:
                     if existing_user:
                         errors.append("Email already exists")
         
-        # Mobile number validation
-        mobile = user_data.get('mobile_number', '').strip()
+        # Phone number validation
+        mobile = user_data.get('phone', '').strip()
         if mobile:
             if not self.mobile_pattern.match(mobile):
-                errors.append("Invalid mobile number format")
+                errors.append("Invalid phone number format")
             else:
-                # Check mobile uniqueness
+                # Check phone uniqueness
                 if not is_update:
-                    existing_mobile = await self._check_mobile_exists(mobile)
-                    if existing_mobile:
-                        errors.append("Mobile number already exists")
+                    existing_phone = await self._check_phone_exists(mobile)
+                    if existing_phone:
+                        errors.append("Phone number already exists")
         
         # Password validation (only for creation or when password is being updated)
         password = user_data.get('password')
@@ -63,10 +63,7 @@ class ValidationService:
         elif not is_update:
             errors.append("Password is required")
         
-        # Confirm password validation
-        confirm_password = user_data.get('confirm_password')
-        if password and confirm_password and password != confirm_password:
-            errors.append("Passwords do not match")
+        # Confirm password validation removed - handled by UI
         
         # Name validation
         first_name = user_data.get('first_name', '').strip()
@@ -106,10 +103,10 @@ class ValidationService:
         if email and not self.email_pattern.match(email):
             errors.append("Invalid venue email format")
         
-        # Mobile validation (if provided)
-        mobile = venue_data.get('mobile_number', '').strip()
-        if mobile and not self.mobile_pattern.match(mobile):
-            errors.append("Invalid venue mobile number format")
+        # Phone validation (if provided)
+        phone = venue_data.get('phone', '').strip()
+        if phone and not self.mobile_pattern.match(phone):
+            errors.append("Invalid venue phone number format")
         
         # Location validation
         location = venue_data.get('location', {})
@@ -222,15 +219,15 @@ class ValidationService:
             logger.error(f"Error checking email existence: {e}")
             return False
     
-    async def _check_mobile_exists(self, mobile: str) -> bool:
-        """Check if mobile number already exists in the system"""
+    async def _check_phone_exists(self, phone: str) -> bool:
+        """Check if phone number already exists in the system"""
         try:
             from app.database.firestore import get_user_repo
             user_repo = get_user_repo()
-            existing_user = await user_repo.get_by_mobile(mobile)
+            existing_user = await user_repo.get_by_phone(phone)
             return existing_user is not None
         except Exception as e:
-            logger.error(f"Error checking mobile existence: {e}")
+            logger.error(f"Error checking phone existence: {e}")
             return False
     
     def raise_validation_exception(self, errors: List[str]):
@@ -246,9 +243,9 @@ class ValidationService:
         """Validate email format"""
         return bool(self.email_pattern.match(email.strip().lower()))
     
-    def validate_mobile_format(self, mobile: str) -> bool:
-        """Validate mobile number format"""
-        return bool(self.mobile_pattern.match(mobile.strip()))
+    def validate_phone_format(self, phone: str) -> bool:
+        """Validate phone number format"""
+        return bool(self.mobile_pattern.match(phone.strip()))
     
     def validate_password_strength(self, password: str) -> bool:
         """Validate password strength"""

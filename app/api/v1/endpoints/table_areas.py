@@ -1,44 +1,23 @@
 """
 Table Area Management API Endpoints
-Additional endpoints for managing table areas/sections within venues
+Manages table areas/sections within venues with proper Firestore integration
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends
-from pydantic import BaseModel
 import uuid
 from datetime import datetime
 
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
-from app.models.schemas import ApiResponse
+from app.models.dto import (
+    ApiResponse, 
+    TableAreaResponseDTO as TableArea,
+    TableAreaCreateDTO as TableAreaCreate, 
+    TableAreaUpdateDTO as TableAreaUpdate
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
-
-
-class TableArea(BaseModel):
-    id: Optional[str] = None
-    name: str
-    description: Optional[str] = None
-    venue_id: str
-    capacity: Optional[int] = None
-    is_active: bool = True
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-
-
-class TableAreaCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    venue_id: str
-    capacity: Optional[int] = None
-
-
-class TableAreaUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    capacity: Optional[int] = None
-    is_active: Optional[bool] = None
 
 
 @router.get("/venues/{venue_id}/areas", 
@@ -51,8 +30,9 @@ async def get_venue_areas(
 ):
     """Get all table areas for a venue"""
     try:
-        from app.database.firestore import get_venue_repo
+        from app.database.firestore import get_venue_repo, get_table_area_repo
         venue_repo = get_venue_repo()
+        area_repo = get_table_area_repo()
         
         # Validate venue exists and user has access
         venue = await venue_repo.get_by_id(venue_id)
@@ -72,42 +52,15 @@ async def get_venue_areas(
                 detail="Access denied"
             )
         
-        # For now, return mock areas since we don't have a separate areas collection
-        # In a real implementation, you'd have a separate areas collection
-        mock_areas = [
-            {
-                "id": "area_1",
-                "name": "Main Dining",
-                "description": "Main dining area with window seating",
-                "venue_id": venue_id,
-                "capacity": 40,
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            },
-            {
-                "id": "area_2", 
-                "name": "Outdoor Patio",
-                "description": "Outdoor seating area",
-                "venue_id": venue_id,
-                "capacity": 20,
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            },
-            {
-                "id": "area_3",
-                "name": "Private Room",
-                "description": "Private dining room for events",
-                "venue_id": venue_id,
-                "capacity": 12,
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-        ]
+        # Get areas from database
+        areas_data = await area_repo.get_by_venue_id(venue_id)
         
-        areas = [TableArea(**area) for area in mock_areas]
+        # Convert to TableArea objects
+        areas = []
+        for area_data in areas_data:
+            # Map is_active to active for API compatibility
+            area_data['active'] = area_data.get('is_active', True)
+            areas.append(TableArea(**area_data))
         
         logger.info(f"Retrieved {len(areas)} areas for venue: {venue_id}")
         return areas
@@ -132,8 +85,9 @@ async def create_area(
 ):
     """Create a new table area"""
     try:
-        from app.database.firestore import get_venue_repo
+        from app.database.firestore import get_venue_repo, get_table_area_repo
         venue_repo = get_venue_repo()
+        area_repo = get_table_area_repo()
         
         # Validate venue exists and user has access
         venue = await venue_repo.get_by_id(area_data.venue_id)
@@ -155,27 +109,30 @@ async def create_area(
                     detail="Access denied: Not authorized for this venue"
                 )
         
-        # Create area (mock implementation)
-        area_id = str(uuid.uuid4())
-        new_area = {
-            "id": area_id,
-            "name": area_data.name,
-            "description": area_data.description,
-            "venue_id": area_data.venue_id,
-            "capacity": area_data.capacity,
-            "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
+        # Check if area name already exists for this venue
+        existing_area = await area_repo.get_by_name(area_data.venue_id, area_data.name)
+        if existing_area:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Area name already exists for this venue"
+            )
         
-        # In a real implementation, you'd save this to a database
-        # For now, we'll just return success
+        # Prepare area data for creation
+        area_dict = area_data.dict()
+        # Map 'active' to 'is_active' for database storage
+        area_dict['is_active'] = area_dict.pop('active', True)
         
-        logger.info(f"Area created: {area_id} for venue {area_data.venue_id}")
+        # Create area in database
+        created_area = await area_repo.create(area_dict)
+        
+        # Map is_active back to active for response
+        created_area['active'] = created_area.get('is_active', True)
+        
+        logger.info(f"Area created: {created_area['id']} for venue {area_data.venue_id}")
         return ApiResponse(
             success=True,
             message="Table area created successfully",
-            data=new_area
+            data=created_area
         )
         
     except HTTPException:
@@ -199,17 +156,68 @@ async def update_area(
 ):
     """Update table area"""
     try:
-        # Mock implementation - in reality you'd fetch from database
-        # and validate permissions
+        from app.database.firestore import get_venue_repo, get_table_area_repo
+        venue_repo = get_venue_repo()
+        area_repo = get_table_area_repo()
         
-        update_data = area_data.dict(exclude_unset=True)
-        update_data['updated_at'] = datetime.utcnow()
+        # Get existing area
+        existing_area = await area_repo.get_by_id(area_id)
+        if not existing_area:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table area not found"
+            )
+        
+        # Validate venue exists and user has access
+        venue = await venue_repo.get_by_id(existing_area['venue_id'])
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Check permissions
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role != 'superadmin':
+            if (venue.get('admin_id') != current_user['id'] and 
+                venue.get('owner_id') != current_user['id']):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Not authorized for this venue"
+                )
+        
+        # Prepare update data
+        update_dict = area_data.dict(exclude_unset=True)
+        
+        # Handle active/is_active mapping
+        if 'active' in update_dict:
+            update_dict['is_active'] = update_dict.pop('active')
+        
+        # Check if name is being updated and doesn't conflict
+        if 'name' in update_dict and update_dict['name'] != existing_area.get('name'):
+            existing_name_area = await area_repo.get_by_name(
+                existing_area['venue_id'], 
+                update_dict['name']
+            )
+            if existing_name_area and existing_name_area['id'] != area_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Area name already exists for this venue"
+                )
+        
+        # Update area in database
+        updated_area = await area_repo.update(area_id, update_dict)
+        
+        # Map is_active back to active for response
+        updated_area['active'] = updated_area.get('is_active', True)
         
         logger.info(f"Area updated: {area_id}")
         return ApiResponse(
             success=True,
             message="Table area updated successfully",
-            data=update_data
+            data=updated_area
         )
         
     except HTTPException:
@@ -232,8 +240,49 @@ async def delete_area(
 ):
     """Delete table area"""
     try:
-        # Mock implementation - in reality you'd validate permissions
-        # and check if area has tables before deletion
+        from app.database.firestore import get_venue_repo, get_table_area_repo, get_table_repo
+        venue_repo = get_venue_repo()
+        area_repo = get_table_area_repo()
+        table_repo = get_table_repo()
+        
+        # Get existing area
+        existing_area = await area_repo.get_by_id(area_id)
+        if not existing_area:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table area not found"
+            )
+        
+        # Validate venue exists and user has access
+        venue = await venue_repo.get_by_id(existing_area['venue_id'])
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Check permissions
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role != 'superadmin':
+            if (venue.get('admin_id') != current_user['id'] and 
+                venue.get('owner_id') != current_user['id']):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: Not authorized for this venue"
+                )
+        
+        # Check if area has tables assigned to it
+        tables_in_area = await table_repo.query([("area_id", "==", area_id)])
+        if tables_in_area:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete area: {len(tables_in_area)} tables are assigned to this area. Please reassign or delete tables first."
+            )
+        
+        # Delete area from database
+        await area_repo.delete(area_id)
         
         logger.info(f"Area deleted: {area_id}")
         return ApiResponse(
@@ -261,11 +310,33 @@ async def get_area_tables(
 ):
     """Get all tables in an area"""
     try:
-        # Mock implementation - return empty list for now
-        # In reality, you'd filter tables by area_id
+        from app.database.firestore import get_table_area_repo, get_table_repo
+        area_repo = get_table_area_repo()
+        table_repo = get_table_repo()
         
-        logger.info(f"Tables retrieved for area: {area_id}")
-        return []
+        # Validate area exists
+        area = await area_repo.get_by_id(area_id)
+        if not area:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table area not found"
+            )
+        
+        # Check permissions
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role not in ['superadmin', 'admin', 'operator']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Get tables in this area
+        tables = await table_repo.query([("area_id", "==", area_id)])
+        
+        logger.info(f"Retrieved {len(tables)} tables for area: {area_id}")
+        return tables
         
     except HTTPException:
         raise
@@ -274,4 +345,51 @@ async def get_area_tables(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get area tables"
+        )
+
+
+@router.get("/areas/{area_id}",
+            response_model=TableArea,
+            summary="Get table area by ID",
+            description="Get a specific table area by its ID")
+async def get_area_by_id(
+    area_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get table area by ID"""
+    try:
+        from app.database.firestore import get_table_area_repo
+        area_repo = get_table_area_repo()
+        
+        # Get area from database
+        area_data = await area_repo.get_by_id(area_id)
+        if not area_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table area not found"
+            )
+        
+        # Check permissions
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        
+        if user_role not in ['superadmin', 'admin', 'operator']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied"
+            )
+        
+        # Map is_active to active for API compatibility
+        area_data['active'] = area_data.get('is_active', True)
+        
+        logger.info(f"Retrieved area: {area_id}")
+        return TableArea(**area_data)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting area by ID: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get area"
         )

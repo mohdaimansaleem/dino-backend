@@ -5,9 +5,14 @@ Comprehensive role management with permissions mapping
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer
+from datetime import datetime
 
-from app.models.schemas import (
-    ApiResponse, PaginatedResponse, UserRole as UserRoleEnum
+from app.models.schemas import UserRole as UserRoleEnum
+from app.models.dto import (
+    ApiResponseDTO as ApiResponse, PaginatedResponseDTO as PaginatedResponse,
+    RoleCreateDTO, RoleUpdateDTO, RoleResponseDTO, RoleFiltersDTO,
+    RolePermissionMappingDTO, RoleAssignmentDTO, RoleStatisticsDTO,
+    BulkPermissionAssignmentDTO, NameAvailabilityDTO
 )
 # Removed base endpoint dependency
 from app.database.firestore import get_firestore_client
@@ -19,72 +24,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 security = HTTPBearer()
 
-# =============================================================================
-# PYDANTIC SCHEMAS FOR ROLES
-# =============================================================================
-
-from pydantic import BaseModel, Field, validator
-from datetime import datetime
-from enum import Enum
-
-class RoleBase(BaseModel):
-    """Base role schema"""
-    name: UserRoleEnum = Field(..., description="Role name from enum")
-    description: str = Field(..., min_length=5, max_length=500, description="Role description")
-    is_active: bool = Field(default=True, description="Whether role is active")
-
-    @validator('name')
-    def validate_name(cls, v):
-        # Ensure it's a valid UserRole enum value
-        if isinstance(v, str):
-            try:
-                return UserRoleEnum(v)
-            except ValueError:
-                raise ValueError(f'Invalid role name. Must be one of: {[role.value for role in UserRoleEnum]}')
-        return v
-
-class RoleCreate(RoleBase):
-    """Schema for creating roles"""
-    permission_ids: List[str] = Field(default_factory=list, description="List of permission IDs")
-
-class RoleUpdate(BaseModel):
-    """Schema for updating roles"""
-    description: Optional[str] = Field(None, min_length=5, max_length=500)
-    is_active: Optional[bool] = None
-    permission_ids: Optional[List[str]] = None
-
-class RoleResponse(RoleBase):
-    """Complete role response schema"""
-    id: str
-    permission_ids: List[str] = Field(default_factory=list)
-    permissions: List[Dict[str, Any]] = Field(default_factory=list)
-    user_count: int = Field(default=0, description="Number of users with this role")
-    created_at: datetime
-    updated_at: datetime
-    created_by: Optional[str] = None
-
-class RoleFilters(BaseModel):
-    """Role filtering options"""
-    is_active: Optional[bool] = None
-    search: Optional[str] = None
-
-class RolePermissionMapping(BaseModel):
-    """Role-permission mapping schema"""
-    role_id: str
-    permission_ids: List[str]
-
-class RoleAssignment(BaseModel):
-    """Role assignment to user schema"""
-    user_id: str
-    role_id: str
-    workspace_id: Optional[str] = None
-    venue_id: Optional[str] = None
-
-class RoleStatistics(BaseModel):
-    """Role statistics schema"""
-    total_roles: int = 0
-    active_roles: int = 0
-    users_by_role: Dict[str, int] = Field(default_factory=dict)
+# Schemas are now imported from centralized locations
 
 # =============================================================================
 # ROLE REPOSITORY
@@ -171,12 +111,9 @@ class RoleRepository:
         return True
     
     async def delete(self, role_id: str) -> bool:
-        """Delete role (soft delete by deactivating)"""
-        update_data = {"is_active": False, "deleted_at": datetime.utcnow()}
-        update_data['updated_at'] = datetime.utcnow()
-        doc_ref = self.db.collection(self.collection).document(role_id)
-        doc_ref.update(update_data)
-        logger.info(f"Role soft deleted: {role_id}")
+        """Delete role (hard delete)"""
+        self.db.collection(self.collection).document(role_id).delete()
+        logger.info(f"Role deleted: {role_id}")
         return True
     
     async def hard_delete(self, role_id: str) -> bool:
@@ -245,7 +182,6 @@ class RoleRepository:
         
         stats = {
             "total_roles": len(roles_data),
-            "active_roles": len([r for r in roles_data if r.get('is_active', True)]),
             "users_by_role": {}
         }
         
@@ -274,15 +210,12 @@ role_repo = RoleRepository()
 async def get_roles(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     search: Optional[str] = Query(None, description="Search by name or description")
 ):
     """Get roles with pagination and filtering"""
     try:
         # Build filters
         filters = {}
-        if is_active is not None:
-            filters['is_active'] = is_active
         if search:
             filters['search'] = search
         
@@ -296,7 +229,7 @@ async def get_roles(
             permissions = await role_repo.get_role_permissions(role['id'])
             users = await role_repo.get_users_with_role(role['id'])
             
-            role_response = RoleResponse(
+            role_response = RoleResponseDTO(
                 **role,
                 permissions=permissions,
                 user_count=len(users)
@@ -334,17 +267,17 @@ async def get_roles(
              summary="Create role",
              description="Create a new role with permissions (NO AUTH - TESTING ONLY)")
 async def create_role(
-    role_data: RoleCreate
+    role_data: RoleCreateDTO
     # current_user: Dict[str, Any] = Depends(get_current_admin_user)  # REMOVED FOR TESTING
 ):
     """Create a new role"""
     try:
         # Check if role name already exists
-        existing_role = await role_repo.get_by_name(role_data.name.value)
+        existing_role = await role_repo.get_by_name(role_data.name)
         if existing_role:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Role with name '{role_data.name.value}' already exists"
+                detail=f"Role with name '{role_data.name}' already exists"
             )
         
         # Validate permissions exist (skip validation for testing)
@@ -360,8 +293,7 @@ async def create_role(
         
         # Prepare role data
         role_dict = role_data.dict()
-        role_dict['name'] = role_data.name.value  # Convert enum to string
-        role_dict['created_by'] = "system_test"  # Hardcoded for testing
+        # role_dict['name'] is already a string from the DTO
         
         # Create role
         role_id = await role_repo.create(role_dict)
@@ -370,13 +302,13 @@ async def create_role(
         created_role = await role_repo.get_by_id(role_id)
         permissions = await role_repo.get_role_permissions(role_id)
         
-        role_response = RoleResponse(
+        role_response = RoleResponseDTO(
             **created_role,
             permissions=permissions,
             user_count=0
         )
         
-        logger.info(f"Role created: {role_data.name.value} by system_test")
+        logger.info(f"Role created: {role_data.name} by system_test")
         return ApiResponse(
             success=True,
             message="Role created successfully",
@@ -393,7 +325,7 @@ async def create_role(
         )
 
 @router.get("/{role_id}", 
-            response_model=RoleResponse,
+            response_model=RoleResponseDTO,
             summary="Get role by ID",
             description="Get specific role by ID with permissions")
 async def get_role(
@@ -414,7 +346,7 @@ async def get_role(
         permissions = await role_repo.get_role_permissions(role_id)
         users = await role_repo.get_users_with_role(role_id)
         
-        role_response = RoleResponse(
+        role_response = RoleResponseDTO(
             **role,
             permissions=permissions,
             user_count=len(users)
@@ -437,7 +369,7 @@ async def get_role(
             description="Update role information and permissions")
 async def update_role(
     role_id: str,
-    update_data: RoleUpdate,
+    update_data: RoleUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update role"""
@@ -476,7 +408,6 @@ async def update_role(
         
         # Update role
         update_dict = update_data.dict(exclude_unset=True)
-        update_dict['updated_by'] = current_user['id']
         
         await role_repo.update(role_id, update_dict)
         
@@ -485,7 +416,7 @@ async def update_role(
         permissions = await role_repo.get_role_permissions(role_id)
         users = await role_repo.get_users_with_role(role_id)
         
-        role_response = RoleResponse(
+        role_response = RoleResponseDTO(
             **updated_role,
             permissions=permissions,
             user_count=len(users)
@@ -559,7 +490,7 @@ async def delete_role(
             message = "Role permanently deleted"
         else:
             await role_repo.delete(role_id)
-            message = "Role deactivated successfully"
+            message = "Role deleted successfully"
         
         logger.info(f"Role deleted: {role_id} by {current_user['id']}")
         return ApiResponse(
@@ -617,7 +548,7 @@ async def get_role_permissions(
              description="Assign permissions to a role (replaces existing) - NO AUTH")
 async def assign_permissions_to_role(
     role_id: str,
-    permission_mapping: RolePermissionMapping
+    permission_mapping: RolePermissionMappingDTO
 ):
     """Assign permissions to role"""
     try:
@@ -665,7 +596,7 @@ async def assign_permissions_to_role(
               description="Add permissions to a role (keeps existing)")
 async def add_permissions_to_role(
     role_id: str,
-    permission_mapping: RolePermissionMapping,
+    permission_mapping: RolePermissionMappingDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Add permissions to role"""
@@ -699,7 +630,7 @@ async def add_permissions_to_role(
               description="Remove specific permissions from a role")
 async def remove_permissions_from_role(
     role_id: str,
-    permission_mapping: RolePermissionMapping,
+    permission_mapping: RolePermissionMappingDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Remove permissions from role"""
@@ -778,7 +709,7 @@ async def get_users_with_role(
 # =============================================================================
 
 @router.get("/statistics/overview", 
-            response_model=RoleStatistics,
+            response_model=RoleStatisticsDTO,
             summary="Get role statistics",
             description="Get comprehensive role statistics")
 async def get_role_statistics(
@@ -787,7 +718,7 @@ async def get_role_statistics(
     """Get role statistics"""
     try:
         stats = await role_repo.get_role_statistics()
-        return RoleStatistics(**stats)
+        return RoleStatisticsDTO(**stats)
         
     except Exception as e:
         logger.error(f"Error getting role statistics: {e}")
@@ -886,23 +817,22 @@ async def assign_single_permission_to_role(
              summary="Setup: Create role",
              description="Create a new role (NO AUTH - SETUP ONLY)")
 async def setup_create_role(
-    role_data: RoleCreate
+    role_data: RoleCreateDTO
     # NO AUTHENTICATION FOR SETUP
 ):
     """Create a new role for system setup (NO AUTH)"""
     try:
         # Check if role name already exists
-        existing_role = await role_repo.get_by_name(role_data.name.value)
+        existing_role = await role_repo.get_by_name(role_data.name)
         if existing_role:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Role with name '{role_data.name.value}' already exists"
+                detail=f"Role with name '{role_data.name}' already exists"
             )
         
         # Prepare role data for setup
         role_dict = role_data.dict()
-        role_dict['name'] = role_data.name.value  # Convert enum to string
-        role_dict['created_by'] = 'system_setup'
+        # role_dict['name'] is already a string from the DTO
         
         # Create role
         role_id = await role_repo.create(role_dict)
@@ -911,13 +841,13 @@ async def setup_create_role(
         created_role = await role_repo.get_by_id(role_id)
         permissions = await role_repo.get_role_permissions(role_id)
         
-        role_response = RoleResponse(
+        role_response = RoleResponseDTO(
             **created_role,
             permissions=permissions,
             user_count=0
         )
         
-        logger.info(f"Setup role created: {role_data.name.value}")
+        logger.info(f"Setup role created: {role_data.name}")
         return ApiResponse(
             success=True,
             message="Role created successfully",
@@ -939,7 +869,7 @@ async def setup_create_role(
              description="Assign permissions to a role (NO AUTH - SETUP ONLY)")
 async def setup_assign_permissions_to_role(
     role_id: str,
-    permission_mapping: RolePermissionMapping
+    permission_mapping: RolePermissionMappingDTO
     # NO AUTHENTICATION FOR SETUP
 ):
     """Assign permissions to role for system setup (NO AUTH)"""
@@ -977,9 +907,7 @@ async def setup_assign_permissions_to_role(
             detail=f"Failed to assign permissions: {str(e)}"
         )
 
-class BulkPermissionAssignment(BaseModel):
-    """Schema for bulk permission assignment"""
-    permission_ids: List[str] = Field(..., description="List of permission IDs to assign")
+# BulkPermissionAssignment moved to dto.py
 
 @router.post("/{role_id}/assign-permissions-bulk", 
              response_model=ApiResponse,
@@ -987,7 +915,7 @@ class BulkPermissionAssignment(BaseModel):
              description="Assign multiple permissions to a role (NO AUTH - for seeding)")
 async def assign_bulk_permissions_to_role(
     role_id: str,
-    assignment_data: BulkPermissionAssignment
+    assignment_data: BulkPermissionAssignmentDTO
 ):
     """Assign multiple permissions to role (simplified for seeding)"""
     try:

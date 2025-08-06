@@ -6,6 +6,101 @@ This directory contains the improved roles and permissions setup script for the 
 
 ## Scripts
 
+### `fix_document_ids.py` 🔧 **Document ID Consistency Tool**
+
+Ensures all documents in Firestore collections have their 'id' field matching the Firestore document ID.
+
+**Features:**
+- ✅ Checks all collections automatically
+- ✅ Fixes inconsistent document IDs
+- ✅ Batch operations for efficiency
+- ✅ Safe to run multiple times
+- ✅ Detailed reporting
+
+**Usage:**
+```bash
+# Fix all collections
+python scripts/fix_document_ids.py
+
+# Fix specific collection
+python scripts/fix_document_ids.py users
+
+# Available collections:
+# workspaces, roles, permissions, users, venues, menu_items, 
+# menu_categories, tables, table_areas, orders, customers, 
+# reviews, notifications, transactions, analytics
+```
+
+### `migrate_venue_ratings.py` ⭐ **Venue Rating Migration Tool**
+
+Migrates venue rating data from old structure to new optimized structure for better rating calculations.
+
+**Features:**
+- ✅ Converts old `rating` + `total_reviews` to `rating_total` + `rating_count`
+- ✅ Preserves existing rating data accurately
+- ✅ Automatic verification after migration
+- ✅ Safe to run multiple times
+- ✅ Detailed progress reporting
+
+**Migration Details:**
+- **Old Structure**: `rating` (average) + `total_reviews` (count)
+- **New Structure**: `rating_total` (sum) + `rating_count` (count)
+- **Calculation**: `average_rating = rating_total / rating_count`
+
+**Usage:**
+```bash
+# Run migration with verification
+python scripts/migrate_venue_ratings.py
+
+# Only verify existing migration
+python scripts/migrate_venue_ratings.py --verify
+```
+
+### `migrate_menu_item_ratings.py` 🍽️ **Menu Item Rating Migration Tool**
+
+Migrates menu item rating data from old structure to new optimized structure.
+
+**Features:**
+- ✅ Converts old `rating` to `rating_total` + `rating_count`
+- ✅ Assumes 1 review for existing ratings (best effort)
+- ✅ Automatic verification after migration
+- ✅ Safe to run multiple times
+- ✅ Detailed progress reporting
+
+**Migration Details:**
+- **Old Structure**: `rating` (average, no count available)
+- **New Structure**: `rating_total` (sum) + `rating_count` (count)
+- **Assumption**: Existing ratings = 1 review each
+
+**Usage:**
+```bash
+# Run migration with verification
+python scripts/migrate_menu_item_ratings.py
+
+# Only verify existing migration
+python scripts/migrate_menu_item_ratings.py --verify
+```
+
+### `migrate_all_ratings.py` 🚀 **Complete Rating Migration Tool**
+
+Migrates both venue and menu item ratings in one comprehensive operation.
+
+**Features:**
+- ✅ Migrates venues AND menu items together
+- ✅ Comprehensive verification
+- ✅ Detailed progress reporting for both entity types
+- ✅ Safe to run multiple times
+- ✅ Single command for complete migration
+
+**Usage:**
+```bash
+# Run complete migration with verification
+python scripts/migrate_all_ratings.py
+
+# Only verify existing migrations
+python scripts/migrate_all_ratings.py --verify
+```
+
 ### `setup_roles_permissions.sh` ✨ **WORKING & TESTED**
 
 Modern, maintainable script that replaces the old complex version.
