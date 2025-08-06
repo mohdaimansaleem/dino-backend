@@ -78,7 +78,7 @@ class Settings(BaseSettings):
 
   # JWT Authentication Control
 
-  JWT_AUTH: bool = Field(default=False, description="Enable JWT authentication (True) or disable for GCP auth (False)")
+  JWT_AUTH: bool = Field(default=True, description="Enable JWT authentication (True) or disable for GCP auth (False)")
 
    
 
