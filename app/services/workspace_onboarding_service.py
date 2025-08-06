@@ -57,7 +57,7 @@ class WorkspaceOnboardingService:
                 "owner_id": user_id,
                 "admin_id": user_id,
                 "location": workspace_data.get("location", {}),
-                "mobile_number": workspace_data.get("mobile_number", ""),
+                "phone": workspace_data.get("phone", ""),
                 "email": workspace_data.get("email", ""),
                 "is_active": True,
                 "rating": 0.0,
@@ -71,7 +71,7 @@ class WorkspaceOnboardingService:
             user = {
                 "id": user_id,
                 "email": owner_data.get("email", ""),
-                "mobile_number": owner_data.get("mobile_number", ""),
+                "phone": owner_data.get("phone", ""),
                 "first_name": owner_data.get("first_name", ""),
                 "last_name": owner_data.get("last_name", ""),
                 "hashed_password": get_password_hash(owner_data.get("password", "")),
@@ -81,7 +81,7 @@ class WorkspaceOnboardingService:
                 "is_active": True,
                 "is_verified": False,
                 "email_verified": False,
-                "mobile_verified": False,
+                "phone_verified": False,
                 "created_at": current_time,
                 "updated_at": current_time
             }

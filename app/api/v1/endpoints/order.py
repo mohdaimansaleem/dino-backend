@@ -7,9 +7,10 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime, timedelta
 import uuid
 
-from app.models.schemas import (
-    Order, OrderCreate, OrderUpdate, OrderStatus, PaymentStatus, OrderType,
-    OrderItemBase, ApiResponse, PaginatedResponse
+from app.models.schemas import Order, OrderStatus, PaymentStatus, OrderType
+from app.models.dto import (
+    OrderCreateDTO, OrderUpdateDTO, OrderResponseDTO, OrderItemCreateDTO,
+    ApiResponseDTO, PaginatedResponseDTO
 )
 # Removed base endpoint dependency
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
@@ -21,14 +22,14 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreate, OrderUpdate]):
+class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdateDTO]):
     """Enhanced Orders endpoint with lifecycle management"""
     
     def __init__(self):
         super().__init__(
             model_class=Order,
-            create_schema=OrderCreate,
-            update_schema=OrderUpdate,
+            create_schema=OrderCreateDTO,
+            update_schema=OrderUpdateDTO,
             collection_name="orders",
             require_auth=True,
             require_admin=False
@@ -149,13 +150,13 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreate, OrderUpdate])
         if not venue:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cafe not found"
+                detail="Venue not found"
             )
         
         if not venue.get('is_active', False):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cafe is not active"
+                detail="Venue is not active"
             )
     
     async def _validate_table_access(self, table_id: str, venue_id: str):
@@ -301,7 +302,7 @@ orders_endpoint = OrdersEndpoint()
 # =============================================================================
 
 @router.get("/", 
-            response_model=PaginatedResponse,
+            response_model=PaginatedResponseDTO,
             summary="Get orders",
             description="Get paginated list of orders")
 async def get_orders(
@@ -333,12 +334,12 @@ async def get_orders(
 
 
 @router.post("/", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create order",
              description="Create a new order")
 async def create_order(
-    order_data: OrderCreate,
+    order_data: OrderCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Create a new order"""
@@ -346,7 +347,7 @@ async def create_order(
 
 
 @router.get("/{order_id}", 
-            response_model=Order,
+            response_model=OrderResponseDTO,
             summary="Get order by ID",
             description="Get specific order by ID")
 async def get_order(
@@ -358,12 +359,12 @@ async def get_order(
 
 
 @router.put("/{order_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update order",
             description="Update order information")
 async def update_order(
     order_id: str,
-    order_update: OrderUpdate,
+    order_update: OrderUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update order information"""
@@ -375,7 +376,7 @@ async def update_order(
 # =============================================================================
 
 @router.put("/{order_id}/status", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update order status",
             description="Update order status with validation")
 async def update_order_status(
@@ -388,7 +389,7 @@ async def update_order_status(
         success = await orders_endpoint.update_order_status(order_id, new_status, current_user)
         
         if success:
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message=f"Order status updated to {new_status.value}"
             )
@@ -409,7 +410,7 @@ async def update_order_status(
 
 
 @router.post("/{order_id}/confirm", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Confirm order",
              description="Confirm pending order")
 async def confirm_order(
@@ -428,7 +429,7 @@ async def confirm_order(
             estimated_ready_time = datetime.utcnow() + timedelta(minutes=estimated_minutes)
             await repo.update(order_id, {"estimated_ready_time": estimated_ready_time})
         
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Order confirmed successfully"
         )
@@ -444,7 +445,7 @@ async def confirm_order(
 
 
 @router.post("/{order_id}/cancel", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Cancel order",
              description="Cancel order with reason")
 async def cancel_order(
@@ -462,7 +463,7 @@ async def cancel_order(
             repo = get_repository_manager().get_repository('order')
             await repo.update(order_id, {"cancellation_reason": reason})
         
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Order cancelled successfully"
         )
@@ -478,11 +479,11 @@ async def cancel_order(
 
 
 # =============================================================================
-# CAFE ORDER ENDPOINTS
+# VENUE ORDER ENDPOINTS
 # =============================================================================
 
 @router.get("/venues/{venue_id}/orders", 
-            response_model=List[Order],
+            response_model=List[OrderResponseDTO],
             summary="Get venue orders",
             description="Get all orders for a specific venue")
 async def get_venue_orders(
@@ -503,7 +504,7 @@ async def get_venue_orders(
         else:
             orders_data = await repo.get_by_venue(venue_id, limit=limit)
         
-        orders = [Order(**order) for order in orders_data]
+        orders = [OrderResponseDTO(**order) for order in orders_data]
         
         logger.info(f"Retrieved {len(orders)} orders for venue: {venue_id}")
         return orders
@@ -585,7 +586,7 @@ async def get_live_order_status(
         orders_by_status = {}
         for status in active_statuses:
             orders_by_status[status] = [
-                Order(**order) for order in active_orders 
+                OrderResponseDTO(**order) for order in active_orders 
                 if order.get('status') == status
             ]
         
@@ -622,7 +623,7 @@ async def get_live_order_status(
 # =============================================================================
 
 @router.get("/customers/{customer_id}/orders", 
-            response_model=List[Order],
+            response_model=List[OrderResponseDTO],
             summary="Get customer orders",
             description="Get order history for a customer")
 async def get_customer_orders(
@@ -646,7 +647,7 @@ async def get_customer_orders(
             except HTTPException:
                 continue  # Skip orders user can't access
         
-        orders = [Order(**order) for order in accessible_orders]
+        orders = [OrderResponseDTO(**order) for order in accessible_orders]
         
         logger.info(f"Retrieved {len(orders)} orders for customer: {customer_id}")
         return orders

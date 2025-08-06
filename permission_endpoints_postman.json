@@ -1,0 +1,169 @@
+{
+  "info": {
+    "name": "Permission Endpoints",
+    "description": "Collection for testing user and role permission endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "api_base_url",
+      "value": "http://localhost:8000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "test_user_123",
+      "type": "string"
+    },
+    {
+      "key": "role_id", 
+      "value": "test_role_456",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "your_jwt_token_here",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Get User Permissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/permissions/users/{{user_id}}/permissions",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "users", "{{user_id}}", "permissions"]
+        },
+        "description": "Get all permissions assigned to a specific user through their role"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Role Permissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/permissions/roles/{{role_id}}/permissions",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "roles", "{{role_id}}", "permissions"]
+        },
+        "description": "Get all permissions assigned to a specific role"
+      },
+      "response": []
+    },
+    {
+      "name": "Get My Permissions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/permissions/me/permissions",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "me", "permissions"]
+        },
+        "description": "Get all permissions for the currently authenticated user"
+      },
+      "response": []
+    },
+    {
+      "name": "Get User Permissions Detailed",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/permissions/users/{{user_id}}/permissions/detailed",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "users", "{{user_id}}", "permissions", "detailed"]
+        },
+        "description": "Get user permissions along with detailed role information"
+      },
+      "response": []
+    },
+    {
+      "name": "Check User Permissions",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "[\n  \"venue.read\",\n  \"menu.create\",\n  \"order.manage\",\n  \"user.update\"\n]"
+        },
+        "url": {
+          "raw": "{{api_base_url}}/permissions/users/{{user_id}}/permissions/check",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "users", "{{user_id}}", "permissions", "check"]
+        },
+        "description": "Check if a user has specific permissions"
+      },
+      "response": []
+    },
+    {
+      "name": "Update Permission (Example)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{jwt_token}}",
+            "type": "text"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"display_name\": \"Updated Custom Feature Management\",\n  \"description\": \"Updated permission description\"\n}"
+        },
+        "url": {
+          "raw": "{{api_base_url}}/permissions/{{permission_id}}",
+          "host": ["{{api_base_url}}"],
+          "path": ["permissions", "{{permission_id}}"]
+        },
+        "description": "Example of updating a permission (your original request format)"
+      },
+      "response": []
+    }
+  ]
+}

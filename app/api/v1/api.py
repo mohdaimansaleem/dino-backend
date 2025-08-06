@@ -20,6 +20,7 @@ from app.api.v1.endpoints import (
     roles,
     permissions,
     dashboard,
+    analytics,
     user_preferences,
     venue_status,
     table_areas,
@@ -130,6 +131,7 @@ api_router.include_router(
 # Health Check Endpoints
 api_router.include_router(
     health.router, 
+    prefix="/health",
     tags=["health"],
     responses={
         200: {"description": "Health check successful"},
@@ -184,13 +186,30 @@ api_router.include_router(
 )
 
 # =============================================================================
+# ANALYTICS ENDPOINTS
+# =============================================================================
+
+# Analytics Management
+api_router.include_router(
+    analytics.router, 
+    prefix="/analytics",
+    tags=["analytics"],
+    responses={
+        404: {"description": "Analytics data not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"},
+        400: {"description": "Invalid parameters"}
+    }
+)
+
+# =============================================================================
 # ADDITIONAL UTILITY ENDPOINTS
 # =============================================================================
 
 # User Preferences and Addresses
 api_router.include_router(
     user_preferences.router, 
-    prefix="/users", 
+    prefix="/users/me", 
     tags=["user-preferences"],
     responses={
         404: {"description": "User not found"},

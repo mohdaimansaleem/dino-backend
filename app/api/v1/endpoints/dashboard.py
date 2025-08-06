@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from app.core.security import get_current_user
 from app.core.logging_config import get_logger
-from app.models.schemas import User, ApiResponse
+from app.models.dto import ApiResponse
 # Dashboard service imported lazily to avoid circular imports
 
 logger = get_logger(__name__)

@@ -32,7 +32,7 @@ steps:
       '--concurrency', '80',
       '--timeout', '300',
       '--port', '8080',
-      '--set-env-vars', 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,DATABASE_NAME=(default),GCS_BUCKET_NAME=$PROJECT_ID-dino-storage,QR_CODE_BASE_URL=https://dino-backend-$PROJECT_ID.a.run.app,CORS_ORIGINS=https://dino-frontend-$PROJECT_ID.a.run.app,SECRET_KEY=${_JWT_SECRET}',
+      '--set-env-vars', 'ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,DATABASE_NAME=(default),GCS_BUCKET_NAME=$PROJECT_ID-dino-storage,QR_CODE_BASE_URL=https://dino-backend-$PROJECT_ID.a.run.app,CORS_ORIGINS=https://dino-frontend-867506203789.us-central1.run.app,SECRET_KEY=${_JWT_SECRET}',
       '--service-account', 'dino-backend-sa@$PROJECT_ID.iam.gserviceaccount.com'
     ]
 

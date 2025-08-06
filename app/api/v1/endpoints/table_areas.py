@@ -9,11 +9,11 @@ from datetime import datetime
 
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
-from app.models.schemas import (
+from app.models.dto import (
     ApiResponse, 
-    TableArea, 
-    TableAreaCreate, 
-    TableAreaUpdate
+    TableAreaResponseDTO as TableArea,
+    TableAreaCreateDTO as TableAreaCreate, 
+    TableAreaUpdateDTO as TableAreaUpdate
 )
 
 logger = get_logger(__name__)

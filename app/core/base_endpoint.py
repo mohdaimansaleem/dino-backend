@@ -113,7 +113,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             
             logger.info(f"{self.collection_name.title()} created: {created_item.get('id')}")
             
-            from app.models.schemas import ApiResponse
+            from app.models.dto import ApiResponse
             return ApiResponse(
                 success=True,
                 message=f"{self.collection_name.title()} created successfully",
@@ -184,7 +184,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             
             logger.info(f"{self.collection_name.title()} updated: {item_id}")
             
-            from app.models.schemas import ApiResponse
+            from app.models.dto import ApiResponse
             return ApiResponse(
                 success=True,
                 message=f"{self.collection_name.title()} updated successfully",
@@ -230,7 +230,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             
             logger.info(f"{self.collection_name.title()} {'deactivated' if soft_delete else 'deleted'}: {item_id}")
             
-            from app.models.schemas import ApiResponse
+            from app.models.dto import ApiResponse
             return ApiResponse(
                 success=True,
                 message=message
@@ -287,7 +287,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             has_next = page < total_pages
             has_prev = page > 1
             
-            from app.models.schemas import PaginatedResponse
+            from app.models.dto import PaginatedResponse
             return PaginatedResponse(
                 success=True,
                 data=items,

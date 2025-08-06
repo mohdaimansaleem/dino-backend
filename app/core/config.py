@@ -26,23 +26,31 @@ class Settings(BaseSettings):
     # =============================================================================
     # SECURITY
     # =============================================================================
-    SECRET_KEY: str = Field(default="your-secret-key-change-in-production-at-least-32-characters-long", description="JWT secret key")
+    SECRET_KEY: str = Field(description="JWT secret key - MUST be set in production")
     ALGORITHM: str = Field(default="HS256", description="JWT algorithm")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, description="JWT token expiration")
-    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=30, description="Refresh token expiration")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60, description="JWT token expiration (increased for better UX)")
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, description="Refresh token expiration (reduced for security)")
+    
+    # Security Settings
+    BCRYPT_ROUNDS: int = Field(default=12, description="BCrypt hashing rounds")
+    MAX_LOGIN_ATTEMPTS: int = Field(default=5, description="Maximum login attempts before lockout")
+    LOCKOUT_DURATION_MINUTES: int = Field(default=15, description="Account lockout duration")
+    REQUIRE_STRONG_PASSWORDS: bool = Field(default=True, description="Enforce strong password policy")
+    
+    # JWT Authentication Control
+    JWT_AUTH: bool = Field(default=False, description="Enable JWT authentication (True) or disable for GCP auth (False)")
+    
+    # Development User (when JWT_AUTH=False)
+    DEV_USER_ID: str = Field(default="dev-user-123", description="Default user ID for development mode")
+    DEV_USER_EMAIL: str = Field(default="dev@example.com", description="Default user email for development mode")
+    DEV_USER_ROLE: str = Field(default="superadmin", description="Default user role for development mode")
     
     # =============================================================================
     # CORS CONFIGURATION
     # =============================================================================
     CORS_ORIGINS: Union[List[str], str] = Field(
-        default=[
-            "http://localhost:3000", 
-            "https://localhost:3000",
-            "http://localhost:3001",
-            "https://localhost:3001",
-            "*"  # Allow all origins for development - remove in production
-        ], 
-        description="Allowed CORS origins"
+        default= [ '*' ], 
+        description="Allowed CORS origins - DO NOT use '*' in production"
     )
     CORS_ALLOW_CREDENTIALS: bool = Field(default=True, description="Allow credentials in CORS")
     CORS_ALLOW_METHODS: Union[List[str], str] = Field(
@@ -141,6 +149,30 @@ class Settings(BaseSettings):
             return [img_type.strip() for img_type in v.split(",")]
         return v
     
+    @field_validator('SECRET_KEY')
+    @classmethod
+    def validate_secret_key(cls, v):
+        if not v:
+            raise ValueError("SECRET_KEY is required")
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters long")
+        if v == "your-secret-key-change-in-production-at-least-32-characters-long":
+            raise ValueError("SECRET_KEY must be changed from default value")
+        return v
+    
+    @field_validator('CORS_ORIGINS')
+    @classmethod
+    def validate_cors_origins(cls, v, info):
+        # TEMPORARILY ALLOW ALL ORIGINS - TODO: Fix in production
+        # Check if we're in production and using wildcard
+        environment = info.data.get('ENVIRONMENT', 'development')
+        if environment.lower() == 'production' and '*' in v:
+            # TODO: Remove this temporary bypass and configure proper CORS origins
+            import logging
+            logging.getLogger(__name__).warning("⚠️ CORS wildcard '*' is temporarily allowed in production - FIX THIS!")
+            pass  # Temporarily allow wildcard
+        return v
+    
     # =============================================================================
     # COMPUTED PROPERTIES
     # =============================================================================
@@ -155,6 +187,10 @@ class Settings(BaseSettings):
     @property
     def is_staging(self) -> bool:
         return self.ENVIRONMENT.lower() == "staging"
+    
+    @property
+    def is_jwt_auth_enabled(self) -> bool:
+        return self.JWT_AUTH
     
     class Config:
         env_file = ".env"

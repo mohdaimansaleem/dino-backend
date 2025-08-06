@@ -6,7 +6,8 @@ from typing import Dict, Any, List, Optional, Set
 from fastapi import HTTPException, status
 from datetime import datetime
 
-from app.models.schemas import UserRole, PermissionCheck
+from app.models.schemas import UserRole
+from app.models.dto import PermissionCheckDTO as PermissionCheck
 from app.database.firestore import get_user_repo, get_workspace_repo, get_venue_repo
 from app.core.logging_config import get_logger
 
@@ -263,7 +264,7 @@ class RolePermissionService:
         new_user = {
             "id": user_id,
             "email": user_data['email'].lower(),
-            "mobile_number": user_data.get('mobile_number'),
+            "phone": user_data.get('phone'),
             "first_name": user_data.get('first_name', ''),
             "last_name": user_data.get('last_name', ''),
             "role_id": None,  # Will be set after role creation
@@ -271,7 +272,7 @@ class RolePermissionService:
             "is_active": True,
             "is_verified": False,
             "email_verified": False,
-            "mobile_verified": False,
+            "phone_verified": False,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
