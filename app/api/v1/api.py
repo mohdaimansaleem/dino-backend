@@ -233,7 +233,7 @@ api_router.include_router(
 # Table Areas Management
 api_router.include_router(
     table_areas.router, 
-    prefix="/tables", 
+    prefix="/table-areas", 
     tags=["table-areas"],
     responses={
         404: {"description": "Area not found"},
