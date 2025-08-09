@@ -4,7 +4,7 @@ Authentication API Endpoints
 
 """
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Query
 
 from typing import Dict, Any
 
