@@ -18,7 +18,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 
 
-from  app.core.config import settings
+from app.core.config import settings
 
 from app.core.logging_config import get_logger
 
@@ -336,9 +336,23 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
      
 
-    # Role is now directly stored in user document
+    # Resolve role from role_id if not already present
 
-    if 'role' not in user:
+    if 'role' not in user and user.get('role_id'):
+
+      try:
+
+        resolved_role = await _get_user_role(user)
+
+        user['role'] = resolved_role
+
+      except Exception as e:
+
+        logger.warning(f"Failed to resolve role for user {user.get('id')}: {e}")
+
+        user['role'] = 'operator'
+
+    elif 'role' not in user:
 
       user['role'] = 'operator'
 
@@ -388,11 +402,15 @@ async def get_current_admin_user(current_user: Dict[str, Any] = Depends(get_curr
 
   """Get current user with admin privileges"""
 
-  user_role = current_user.get('role', 'operator')
+  # Get the actual role name from role_id
+
+  user_role = await _get_user_role(current_user)
 
    
 
   if user_role not in ['admin', 'superadmin']:
+
+    logger.warning(f"Admin access denied for user {current_user.get('id')} with role: {user_role}")
 
     raise HTTPException(
 
@@ -414,11 +432,15 @@ async def get_current_superadmin_user(current_user: Dict[str, Any] = Depends(get
 
   """Get current user with superadmin privileges"""
 
-  user_role = current_user.get('role', 'operator')
+  # Get the actual role name from role_id
+
+  user_role = await _get_user_role(current_user)
 
    
 
   if user_role != 'superadmin':
+
+    logger.warning(f"Superadmin access denied for user {current_user.get('id')} with role: {user_role}")
 
     raise HTTPException(
 
@@ -448,7 +470,9 @@ async def validate_venue_access(user: Dict[str, Any], venue_id: str) -> bool:
 
   try:
 
-    user_role = user.get('role', 'operator')
+    # Get the actual role name from role_id
+
+    user_role = await _get_user_role(user)
 
      
 
@@ -530,7 +554,9 @@ async def get_user_accessible_venues(user: Dict[str, Any]) -> List[str]:
 
   try:
 
-    user_role = user.get('role', 'operator')
+    # Get the actual role name from role_id
+
+    user_role = await _get_user_role(user)
 
      
 
@@ -538,7 +564,7 @@ async def get_user_accessible_venues(user: Dict[str, Any]) -> List[str]:
 
     if user_role == 'superadmin':
 
-      from  app.database.firestore import get_venue_repo
+      from app.database.firestore import get_venue_repo
 
       venue_repo = get_venue_repo()
 

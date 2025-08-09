@@ -2241,3 +2241,87 @@ async def check_auth_config():
       detail=f"Config check failed: {str(e)}"
 
     )
+
+
+
+@router.get("/user-role-debug", response_model=ApiResponseDTO)
+
+async def debug_user_role(current_user: Dict[str, Any] = Depends(get_current_user)):
+
+  """Debug user role information (development only)"""
+
+  try:
+
+    from app.core.config import settings
+
+    from app.core.security import _get_user_role
+
+     
+
+    if settings.is_production:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Endpoint not available in production"
+
+      )
+
+     
+
+    # Get the resolved role
+
+    resolved_role = await _get_user_role(current_user)
+
+     
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="User role debug information",
+
+      data={
+
+        "user_id": current_user.get("id"),
+
+        "email": current_user.get("email"),
+
+        "role_id": current_user.get("role_id"),
+
+        "direct_role_field": current_user.get("role"),
+
+        "resolved_role": resolved_role,
+
+        "venue_ids": current_user.get("venue_ids", []),
+
+        "workspace_id": current_user.get("workspace_id"),
+
+        "is_active": current_user.get("is_active"),
+
+        "has_admin_privileges": resolved_role in ['admin', 'superadmin'],
+
+        "has_superadmin_privileges": resolved_role == 'superadmin'
+
+      }
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"User role debug failed: {e}", exc_info=True)
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail=f"User role debug failed: {str(e)}"
+
+    )
