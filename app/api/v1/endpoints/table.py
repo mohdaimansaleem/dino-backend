@@ -20,7 +20,7 @@ import json
 
 
 
-from app.models.schemas import Table, TableStatus
+from  app.models.schemas import Table, TableStatus
 
 from app.models.dto import (
 
@@ -290,6 +290,10 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
     from app.database.firestore import get_venue_repo
 
+    from app.core.security import _get_user_role
+
+     
+
     venue_repo = get_venue_repo()
 
      
@@ -308,25 +312,37 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
      
 
-    # Check venue access permissions
+    # Get the actual role name from role_id
 
-    if current_user.get('role') != 'admin':
+    user_role = await _get_user_role(current_user)
 
-      user_workspace_id = current_user.get('workspace_id')
+     
 
-      venue_workspace_id = venue.get('workspace_id')
+    # SuperAdmin and Admin have access to all venues
 
-       
+    if user_role in ['superadmin', 'admin']:
 
-      if user_workspace_id != venue_workspace_id:
+      return
 
-        raise HTTPException(
+     
 
-          status_code=status.HTTP_403_FORBIDDEN,
+    # For other roles, check workspace access
 
-          detail="Access denied: Venue belongs to different workspace"
+    user_workspace_id = current_user.get('workspace_id')
 
-        )
+    venue_workspace_id = venue.get('workspace_id')
+
+     
+
+    if user_workspace_id != venue_workspace_id:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_403_FORBIDDEN,
+
+        detail="Access denied: Venue belongs to different workspace"
+
+      )
 
    
 
@@ -1074,7 +1090,7 @@ async def verify_qr_code(
 
     # Get venue information
 
-    from app.database.firestore import get_venue_repo
+    from  app.database.firestore import get_venue_repo
 
     venue_repo = get_venue_repo()
 
@@ -1200,7 +1216,11 @@ async def get_venue_tables(
 
     # Filter active tables for non-admin users
 
-    if current_user.get('role') != 'admin':
+    from app.core.security import _get_user_role
+
+    user_role = await _get_user_role(current_user)
+
+    if user_role not in ['admin', 'superadmin']:
 
       tables_data = [table for table in tables_data if table.get('is_active', False)]
 
