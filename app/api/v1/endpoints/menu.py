@@ -8,6 +8,8 @@ Complete CRUD for menu categories and items with venue isolation and advanced fe
 
 from typing import List, Dict, Any, Optional
 
+from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
 
 
@@ -33,6 +35,8 @@ from app.core.dependency_injection import get_repository_manager
 from app.core.security import get_current_user, get_current_admin_user, require_venue_access
 
 from app.core.logging_config import get_logger
+
+from app.utils.menu_item_utils import ensure_menu_item_fields, process_menu_items_for_response
 
 
 
@@ -182,7 +186,11 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreateDTO, M
 
     data['is_available'] = True
 
-    data['rating'] = 0.0
+    data['rating_total'] = 0.0
+
+    data['rating_count'] = 0
+
+    data['average_rating'] = 0.0
 
      
 
@@ -316,7 +324,13 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreateDTO, M
 
      
 
-    return [MenuItemResponseDTO(**item) for item in matching_items]
+    # Process items to ensure all required fields are present
+
+    processed_items = process_menu_items_for_response(matching_items)
+
+     
+
+    return [MenuItemResponseDTO(**item) for item in processed_items]
 
    
 
@@ -348,7 +362,13 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreateDTO, M
 
      
 
-    return [MenuItemResponseDTO(**item) for item in items_data]
+    # Process items to ensure all required fields are present
+
+    processed_items = process_menu_items_for_response(items_data)
+
+     
+
+    return [MenuItemResponseDTO(**item) for item in processed_items]
 
 
 
@@ -1030,6 +1050,10 @@ async def get_public_venue_menu_items(
 
   try:
 
+    logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
+
+     
+
     repo = get_repository_manager().get_repository('menu_item')
 
      
@@ -1038,13 +1062,21 @@ async def get_public_venue_menu_items(
 
       # Get items by category
 
+      logger.debug(f"Getting items by category: {category_id}")
+
       items_data = await repo.get_by_category(venue_id, category_id)
 
     else:
 
       # Get all items for venue
 
+      logger.debug(f"Getting all items for venue: {venue_id}")
+
       items_data = await repo.get_by_venue(venue_id)
+
+     
+
+    logger.debug(f"Retrieved {len(items_data)} raw items from database")
 
      
 
@@ -1052,9 +1084,71 @@ async def get_public_venue_menu_items(
 
     available_items = [item for item in items_data if item.get('is_available', False)]
 
+    logger.debug(f"Filtered to {len(available_items)} available items")
+
      
 
-    items = [MenuItemResponseDTO(**item) for item in available_items]
+    # Process items to ensure all required fields are present
+
+    try:
+
+      processed_items = process_menu_items_for_response(available_items)
+
+      logger.debug(f"Successfully processed {len(processed_items)} items")
+
+    except Exception as process_error:
+
+      logger.error(f"Error processing menu items: {process_error}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail=f"Error processing menu items: {str(process_error)}"
+
+      )
+
+     
+
+    # Create DTO objects
+
+    try:
+
+      items = []
+
+      for i, item in enumerate(processed_items):
+
+        try:
+
+          dto_item = MenuItemResponseDTO(**item)
+
+          items.append(dto_item)
+
+        except Exception as dto_error:
+
+          logger.error(f"Error creating DTO for item {i} (id: {item.get('id', 'unknown')}): {dto_error}")
+
+          logger.error(f"Item data: {item}")
+
+          # Skip this item and continue with others
+
+          continue
+
+       
+
+      logger.info(f"Successfully created {len(items)} DTO objects from {len(processed_items)} processed items")
+
+    except Exception as dto_error:
+
+      logger.error(f"Error creating MenuItemResponseDTO objects: {dto_error}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail=f"Error creating response objects: {str(dto_error)}"
+
+      )
 
      
 
@@ -1064,15 +1158,23 @@ async def get_public_venue_menu_items(
 
      
 
+  except HTTPException:
+
+    raise
+
   except Exception as e:
 
-    logger.error(f"Error getting public venue menu items: {e}")
+    logger.error(f"Unexpected error getting public venue menu items: {e}")
+
+    import traceback
+
+    logger.error(f"Traceback: {traceback.format_exc()}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to get menu items"
+      detail=f"Failed to get menu items: {str(e)}"
 
     )
 
@@ -1208,7 +1310,13 @@ async def get_venue_menu_items(
 
        
 
-      items = [MenuItemResponseDTO(**item) for item in items_data]
+      # Process items to ensure all required fields are present
+
+      processed_items = process_menu_items_for_response(items_data)
+
+       
+
+      items = [MenuItemResponseDTO(**item) for item in processed_items]
 
      
 
