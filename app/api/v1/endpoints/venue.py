@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File,
 
 
 
-from  app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus
+from  app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus, VenueStatus
 
 from app.models.dto import (
 
@@ -41,6 +41,50 @@ from app.core.generic_utils import (
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+
+
+
+
+def clean_venue_status(venue_data: Dict[str, Any]) -> Dict[str, Any]:
+
+  """Clean and normalize venue status field"""
+
+  if 'status' in venue_data:
+
+    status_value = venue_data['status']
+
+    # Handle cases where status might be incorrectly formatted
+
+    if isinstance(status_value, str):
+
+      # Remove any extra quotes that might be present
+
+      cleaned_status = status_value.strip("'\"")
+
+      # Validate against enum values
+
+      valid_statuses = [e.value for e in VenueStatus]
+
+      if cleaned_status in valid_statuses:
+
+        venue_data['status'] = cleaned_status
+
+      else:
+
+        venue_data['status'] = VenueStatus.ACTIVE.value
+
+    else:
+
+      venue_data['status'] = VenueStatus.ACTIVE.value
+
+  else:
+
+    venue_data['status'] = VenueStatus.ACTIVE.value
+
+   
+
+  return venue_data
 
 
 
@@ -220,6 +264,138 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
 
    
 
+  async def get_items(self, 
+
+            page: int = 1, 
+
+            page_size: int = 10,
+
+            search: Optional[str] = None,
+
+            filters: Optional[Dict[str, Any]] = None,
+
+            current_user: Optional[Dict[str, Any]] = None):
+
+    """Get paginated list of venues with proper status handling"""
+
+    try:
+
+      repo = self.get_repository()
+
+       
+
+      # Build query filters
+
+      query_filters = await self._build_query_filters(filters, search, current_user)
+
+       
+
+      # Get all items matching filters
+
+      all_items = await repo.query(query_filters) if query_filters else await repo.get_all()
+
+       
+
+      # Apply text search if provided
+
+      if search:
+
+        search_lower = search.lower()
+
+        # Basic text search - override in subclasses for more sophisticated search
+
+        all_items = [
+
+          item for item in all_items
+
+          if any(search_lower in str(value).lower() for value in item.values() if isinstance(value, str))
+
+        ]
+
+       
+
+      # Filter items based on user permissions
+
+      filtered_items = await self._filter_items_for_user(all_items, current_user)
+
+       
+
+      # Calculate pagination
+
+      total = len(filtered_items)
+
+      start_idx = (page - 1) * page_size
+
+      end_idx = start_idx + page_size
+
+      items_page = filtered_items[start_idx:end_idx]
+
+       
+
+      # Convert to model objects with proper status handling
+
+      items = []
+
+      for item in items_page:
+
+        item = clean_venue_status(item)
+
+        items.append(VenueResponseDTO(**item))
+
+       
+
+      # Calculate pagination metadata
+
+      total_pages = (total + page_size - 1) // page_size
+
+      has_next = page < total_pages
+
+      has_prev = page > 1
+
+       
+
+      from app.models.dto import PaginatedResponse
+
+      return PaginatedResponse(
+
+        success=True,
+
+        data=items,
+
+        total=total,
+
+        page=page,
+
+        page_size=page_size,
+
+        total_pages=total_pages,
+
+        has_next=has_next,
+
+        has_prev=has_prev
+
+      )
+
+       
+
+    except HTTPException:
+
+      raise
+
+    except Exception as e:
+
+      logger.error(f"Error getting venues list: {e}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail="Failed to get venues list"
+
+      )
+
+   
+
   async def search_venues_by_text(self, 
 
                  search_term: str,
@@ -256,7 +432,17 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
 
      
 
-    return [VenueResponseDTO(**venue) for venue in matching_venues]
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in matching_venues:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+    return venues
 
    
 
@@ -280,7 +466,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
 
     # Add workspace filter for non-admin users
 
-    from app.core.security import _get_user_role
+    from  app.core.security import _get_user_role
 
     user_role = await _get_user_role(current_user)
 
@@ -296,7 +482,79 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
 
     venues_data = await repo.query(filters)
 
-    return [VenueResponseDTO(**venue) for venue in venues_data]
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in venues_data:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+    return venues
+
+   
+
+  async def get_item(self, 
+
+           item_id: str, 
+
+           current_user: Optional[Dict[str, Any]]):
+
+    """Get venue by ID with proper status handling"""
+
+    try:
+
+      repo = self.get_repository()
+
+      item = await repo.get_by_id(item_id)
+
+       
+
+      if not item:
+
+        raise HTTPException(
+
+          status_code=status.HTTP_404_NOT_FOUND,
+
+          detail="Venue not found"
+
+        )
+
+       
+
+      # Validate access
+
+      await self._validate_access_permissions(item, current_user)
+
+       
+
+      # Clean and ensure status field is properly set
+
+      item = clean_venue_status(item)
+
+       
+
+      return VenueResponseDTO(**item)
+
+       
+
+    except HTTPException:
+
+      raise
+
+    except Exception as e:
+
+      logger.error(f"Error getting venue: {e}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail="Failed to get venue"
+
+      )
 
    
 
@@ -494,9 +752,15 @@ async def get_public_venues(
 
      
 
-    # Convert to Venue objects
+    # Convert to Venue objects - clean and add default status if missing
 
-    venues = [VenueResponseDTO(**venue) for venue in venues_page]
+    venues = []
+
+    for venue in venues_page:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
 
      
 
@@ -598,6 +862,18 @@ async def get_public_venue(venue_id: str):
 
      
 
+    # Clean and add default status if missing
+
+    venue = clean_venue_status(venue)
+
+     
+
+    # Debug: Log the actual status value to understand the issue
+
+    logger.info(f"Venue {venue_id} status value: {repr(venue.get('status'))}")
+
+     
+
     logger.info(f"Public venue retrieved: {venue_id}")
 
     return VenueResponseDTO(**venue)
@@ -632,7 +908,7 @@ async def get_public_venue(venue_id: str):
 
 
 
-@router.get("/", 
+@router.get("", 
 
       response_model=PaginatedResponseDTO,
 
@@ -688,7 +964,7 @@ async def get_venues(
 
 
 
-@router.post("/", 
+@router.post("", 
 
        response_model=ApiResponseDTO,
 
@@ -734,7 +1010,15 @@ async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin
 
      
 
-    venues = [VenueResponseDTO(**venue) for venue in venues_data]
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in venues_data:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
 
      
 
@@ -1339,5 +1623,115 @@ async def update_subscription(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
       detail="Failed to update subscription"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# DATA MAINTENANCE ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.post("/fix-venue-status", 
+
+       response_model=ApiResponseDTO,
+
+       summary="Fix venue status data",
+
+       description="Fix any venues with incorrect status values")
+
+async def fix_venue_status_data(
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+):
+
+  """Fix venue status data for all venues"""
+
+  try:
+
+    # Only allow superadmin to run this
+
+    from  app.core.security import _get_user_role
+
+    user_role = await _get_user_role(current_user)
+
+    if user_role != 'superadmin':
+
+      raise HTTPException(
+
+        status_code=status.HTTP_403_FORBIDDEN,
+
+        detail="Only superadmin can run data maintenance"
+
+      )
+
+     
+
+    repo = get_venue_repo()
+
+    all_venues = await repo.get_all()
+
+     
+
+    fixed_count = 0
+
+    for venue in all_venues:
+
+      original_status = venue.get('status')
+
+      cleaned_venue = clean_venue_status(venue.copy())
+
+      new_status = cleaned_venue.get('status')
+
+       
+
+      # If status was changed, update the venue
+
+      if original_status != new_status:
+
+        await repo.update(venue['id'], {'status': new_status})
+
+        fixed_count += 1
+
+        logger.info(f"Fixed venue {venue['id']} status from {repr(original_status)} to {repr(new_status)}")
+
+     
+
+    logger.info(f"Venue status data maintenance completed. Fixed {fixed_count} venues.")
+
+     
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message=f"Venue status data fixed. Updated {fixed_count} venues.",
+
+      data={"fixed_count": fixed_count, "total_venues": len(all_venues)}
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error fixing venue status data: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to fix venue status data"
 
     )
