@@ -11,7 +11,8 @@ from app.core.security import verify_password, get_password_hash, create_access_
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.database.firestore import get_user_repo, get_role_repo
-from app.models.schemas import UserCreate, UserLogin, User, AuthToken, UserRole
+from app.models.dto import UserCreateDTO, UserLoginDTO, UserResponseDTO, AuthTokenDTO
+from app.models.schemas import User, UserRole
 
 logger = get_logger(__name__)
 
@@ -95,7 +96,7 @@ class AuthService:
         permissions["role"] = role_name
         return permissions
     
-    async def register_user(self, user_data: UserCreate) -> Dict[str, Any]:
+    async def register_user(self, user_data: UserCreateDTO) -> Dict[str, Any]:
         """Register a new user with optimized validation"""
         user_repo = get_user_repo()
         
@@ -111,10 +112,15 @@ class AuthService:
             # Get or create default operator role
             role_id = await self._ensure_default_role()
             
+            # Generate consistent UUID for user ID
+            import uuid
+            user_id = str(uuid.uuid4())
+            
             # Create user data
             user_dict = {
+                "id": user_id,  # Set consistent UUID format
                 "email": user_data.email,
-                "mobile_number": user_data.phone,  # Store as mobile_number in database
+                "phone": user_data.phone,
                 "first_name": user_data.first_name,
                 "last_name": user_data.last_name,
                 "role_id": role_id,
@@ -122,11 +128,11 @@ class AuthService:
                 "is_active": True,
                 "is_verified": False,
                 "email_verified": False,
-                "mobile_verified": False
+                "phone_verified": False
             }
             
-            # Save to database
-            created_user = await user_repo.create(user_dict)
+            # Save to database with specific UUID
+            created_user = await user_repo.create(user_dict, doc_id=user_id)
             
             # Remove password from response
             created_user.pop("hashed_password", None)
@@ -164,7 +170,7 @@ class AuthService:
             logger.error(f"Authentication error: {e}")
             return None
     
-    async def login_user(self, login_data: UserLogin) -> AuthToken:
+    async def login_user(self, login_data: UserLoginDTO) -> AuthTokenDTO:
         """Optimized login with cached permissions"""
         try:
             user = await self.authenticate_user(login_data.email, login_data.password)
@@ -206,9 +212,10 @@ class AuthService:
                 pass  # Don't fail login for this
             
             # Prepare user data for response
-            user_response = User.from_dict(user)
+            from app.core.user_utils import convert_user_to_response_dto
+            user_response = convert_user_to_response_dto(user)
             
-            return AuthToken(
+            return AuthTokenDTO(
                 access_token=access_token,
                 token_type="bearer",
                 expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
@@ -223,7 +230,7 @@ class AuthService:
             # Log user data for debugging (without sensitive info)
             if 'user' in locals():
                 logger.error(f"User data keys: {list(user.keys()) if user else 'None'}")
-                logger.error(f"User mobile_number value: {user.get('mobile_number') if user else 'No user'}")
+                logger.error(f"User phone value: {user.get('phone') if user else 'No user'}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Login failed"
@@ -250,10 +257,7 @@ class AuthService:
             update_data.pop("hashed_password", None)
             update_data.pop("id", None)
             update_data.pop("created_at", None)
-            
-            # Map phone field to mobile_number for database storage
-            if "phone" in update_data:
-                update_data["mobile_number"] = update_data.pop("phone")
+    
             
             # Update user
             updated_user = await user_repo.update(user_id, update_data)
@@ -292,7 +296,7 @@ class AuthService:
             logger.error(f"Password change error: {e}")
             raise HTTPException(status_code=500, detail="Password change failed")
     
-    async def refresh_token(self, refresh_token: str) -> AuthToken:
+    async def refresh_token(self, refresh_token: str) -> AuthTokenDTO:
         """Refresh JWT token"""
         from app.core.security import verify_token
         
@@ -329,9 +333,10 @@ class AuthService:
                 expires_delta=refresh_token_expires
             )
             
-            user_response = User.from_dict(user)
+            from app.core.user_utils import convert_user_to_response_dto
+            user_response = convert_user_to_response_dto(user)
             
-            return AuthToken(
+            return AuthTokenDTO(
                 access_token=access_token,
                 token_type="bearer",
                 expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,

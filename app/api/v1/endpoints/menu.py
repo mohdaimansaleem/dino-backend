@@ -3,31 +3,34 @@ Enhanced Menu Management API Endpoints
 Complete CRUD for menu categories and items with venue isolation and advanced features
 """
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
 
-from app.models.schemas import (
-    MenuCategory, MenuCategoryCreate, MenuCategoryUpdate,
-    MenuItem, MenuItemCreate, MenuItemUpdate,
-    ApiResponse, PaginatedResponse, SpiceLevel
+from app.models.schemas import MenuCategory, MenuItem, SpiceLevel
+from app.models.dto import (
+    MenuCategoryCreateDTO, MenuCategoryUpdateDTO, MenuCategoryResponseDTO,
+    MenuItemCreateDTO, MenuItemUpdateDTO, MenuItemResponseDTO,
+    ApiResponseDTO, PaginatedResponseDTO
 )
 # Removed base endpoint dependency
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.core.dependency_injection import get_repository_manager
-from app.core.security import get_current_user, get_current_admin_user
+from app.core.security import get_current_user, get_current_admin_user, require_venue_access
 from app.core.logging_config import get_logger
+from app.utils.menu_item_utils import ensure_menu_item_fields, process_menu_items_for_response
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
-class MenuCategoriesEndpoint(WorkspaceIsolatedEndpoint[MenuCategory, MenuCategoryCreate, MenuCategoryUpdate]):
+class MenuCategoriesEndpoint(WorkspaceIsolatedEndpoint[MenuCategory, MenuCategoryCreateDTO, MenuCategoryUpdateDTO]):
     """Enhanced Menu Categories endpoint with venue isolation"""
     
     def __init__(self):
         super().__init__(
             model_class=MenuCategory,
-            create_schema=MenuCategoryCreate,
-            update_schema=MenuCategoryUpdate,
+            create_schema=MenuCategoryCreateDTO,
+            update_schema=MenuCategoryUpdateDTO,
             collection_name="menu_categories",
             require_auth=True,
             require_admin=True
@@ -63,36 +66,17 @@ class MenuCategoriesEndpoint(WorkspaceIsolatedEndpoint[MenuCategory, MenuCategor
     
     async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
-        from app.database.firestore import get_venue_repo
-        venue_repo = get_repository_manager().get_repository('venue')
-        
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cafe not found"
-            )
-        
-        # Check venue access permissions
-        if current_user.get('role') != 'admin':
-            user_workspace_id = current_user.get('workspace_id')
-            venue_workspace_id = venue.get('workspace_id')
-            
-            if user_workspace_id != venue_workspace_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Cafe belongs to different workspace"
-                )
+        await require_venue_access(venue_id, current_user)
 
 
-class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreate, MenuItemUpdate]):
+class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreateDTO, MenuItemUpdateDTO]):
     """Enhanced Menu Items endpoint with venue isolation"""
     
     def __init__(self):
         super().__init__(
             model_class=MenuItem,
-            create_schema=MenuItemCreate,
-            update_schema=MenuItemUpdate,
+            create_schema=MenuItemCreateDTO,
+            update_schema=MenuItemUpdateDTO,
             collection_name="menu_items",
             require_auth=True,
             require_admin=True
@@ -108,7 +92,9 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreate, Menu
         # Set default values
         data['image_urls'] = []
         data['is_available'] = True
-        data['rating'] = 0.0
+        data['rating_total'] = 0.0
+        data['rating_count'] = 0
+        data['average_rating'] = 0.0
         
         return data
     
@@ -134,26 +120,7 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreate, Menu
     
     async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
-        from app.database.firestore import get_venue_repo
-        venue_repo = get_repository_manager().get_repository('venue')
-        
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cafe not found"
-            )
-        
-        # Check venue access permissions
-        if current_user.get('role') != 'admin':
-            user_workspace_id = current_user.get('workspace_id')
-            venue_workspace_id = venue.get('workspace_id')
-            
-            if user_workspace_id != venue_workspace_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Cafe belongs to different workspace"
-                )
+        await require_venue_access(venue_id, current_user)
     
     async def _validate_category_access(self, category_id: str, venue_id: str):
         """Validate category belongs to the venue"""
@@ -194,7 +161,10 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreate, Menu
                 search_lower in item.get('description', '').lower()):
                 matching_items.append(item)
         
-        return [MenuItem(**item) for item in matching_items]
+        # Process items to ensure all required fields are present
+        processed_items = process_menu_items_for_response(matching_items)
+        
+        return [MenuItemResponseDTO(**item) for item in processed_items]
     
     async def get_items_by_category(self, 
                                   venue_id: str,
@@ -210,7 +180,10 @@ class MenuItemsEndpoint(WorkspaceIsolatedEndpoint[MenuItem, MenuItemCreate, Menu
         repo = self.get_repository()
         items_data = await repo.get_by_category(venue_id, category_id)
         
-        return [MenuItem(**item) for item in items_data]
+        # Process items to ensure all required fields are present
+        processed_items = process_menu_items_for_response(items_data)
+        
+        return [MenuItemResponseDTO(**item) for item in processed_items]
 
 
 # Initialize endpoints
@@ -223,7 +196,7 @@ items_endpoint = MenuItemsEndpoint()
 # =============================================================================
 
 @router.get("/categories", 
-            response_model=PaginatedResponse,
+            response_model=PaginatedResponseDTO,
             summary="Get menu categories",
             description="Get paginated list of menu categories")
 async def get_menu_categories(
@@ -249,12 +222,12 @@ async def get_menu_categories(
 
 
 @router.post("/categories", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create menu category",
              description="Create a new menu category")
 async def create_menu_category(
-    category_data: MenuCategoryCreate,
+    category_data: MenuCategoryCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Create a new menu category"""
@@ -262,7 +235,7 @@ async def create_menu_category(
 
 
 @router.get("/categories/{category_id}", 
-            response_model=MenuCategory,
+            response_model=MenuCategoryResponseDTO,
             summary="Get menu category by ID",
             description="Get specific menu category by ID")
 async def get_menu_category(
@@ -274,12 +247,12 @@ async def get_menu_category(
 
 
 @router.put("/categories/{category_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update menu category",
             description="Update menu category information")
 async def update_menu_category(
     category_id: str,
-    category_update: MenuCategoryUpdate,
+    category_update: MenuCategoryUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update menu category information"""
@@ -287,7 +260,7 @@ async def update_menu_category(
 
 
 @router.delete("/categories/{category_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Delete menu category",
                description="Deactivate menu category (soft delete)")
 async def delete_menu_category(
@@ -299,7 +272,7 @@ async def delete_menu_category(
 
 
 @router.post("/categories/{category_id}/image", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Upload category image",
              description="Upload image for menu category")
 async def upload_category_image(
@@ -324,7 +297,7 @@ async def upload_category_image(
         await repo.update(category_id, {"image_url": image_url})
         
         logger.info(f"Image uploaded for category: {category_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Category image uploaded successfully",
             data={"image_url": image_url}
@@ -345,7 +318,7 @@ async def upload_category_image(
 # =============================================================================
 
 @router.get("/items", 
-            response_model=PaginatedResponse,
+            response_model=PaginatedResponseDTO,
             summary="Get menu items",
             description="Get paginated list of menu items")
 async def get_menu_items(
@@ -380,12 +353,12 @@ async def get_menu_items(
 
 
 @router.post("/items", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create menu item",
              description="Create a new menu item")
 async def create_menu_item(
-    item_data: MenuItemCreate,
+    item_data: MenuItemCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Create a new menu item"""
@@ -393,7 +366,7 @@ async def create_menu_item(
 
 
 @router.get("/items/{item_id}", 
-            response_model=MenuItem,
+            response_model=MenuItemResponseDTO,
             summary="Get menu item by ID",
             description="Get specific menu item by ID")
 async def get_menu_item(
@@ -405,12 +378,12 @@ async def get_menu_item(
 
 
 @router.put("/items/{item_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update menu item",
             description="Update menu item information")
 async def update_menu_item(
     item_id: str,
-    item_update: MenuItemUpdate,
+    item_update: MenuItemUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update menu item information"""
@@ -418,7 +391,7 @@ async def update_menu_item(
 
 
 @router.delete("/items/{item_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Delete menu item",
                description="Remove menu item (soft delete)")
 async def delete_menu_item(
@@ -445,7 +418,7 @@ async def delete_menu_item(
         await repo.update(item_id, {"is_available": False})
         
         logger.info(f"Menu item marked unavailable: {item_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Menu item removed successfully"
         )
@@ -461,7 +434,7 @@ async def delete_menu_item(
 
 
 @router.post("/items/{item_id}/images", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Upload item images",
              description="Upload images for menu item")
 async def upload_item_images(
@@ -495,7 +468,7 @@ async def upload_item_images(
         await repo.update(item_id, {"image_urls": all_images})
         
         logger.info(f"Images uploaded for menu item: {item_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Images uploaded successfully",
             data={"image_urls": uploaded_urls}
@@ -512,11 +485,117 @@ async def upload_item_images(
 
 
 # =============================================================================
+# PUBLIC ENDPOINTS (No Authentication Required)
+# =============================================================================
+
+@router.get("/public/venues/{venue_id}/categories", 
+            response_model=List[MenuCategoryResponseDTO],
+            summary="Get venue categories (public)",
+            description="Get all active categories for a specific venue (public endpoint)")
+async def get_public_venue_categories(venue_id: str):
+    """Get all active categories for a venue (public endpoint)"""
+    try:
+        repo = get_repository_manager().get_repository('menu_category')
+        categories_data = await repo.get_by_venue(venue_id)
+        
+        # Filter only active categories for public access
+        active_categories = [cat for cat in categories_data if cat.get('is_active', False)]
+        
+        categories = [MenuCategoryResponseDTO(**cat) for cat in active_categories]
+        
+        logger.info(f"Retrieved {len(categories)} public categories for venue: {venue_id}")
+        return categories
+        
+    except Exception as e:
+        logger.error(f"Error getting public venue categories: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get categories"
+        )
+
+
+@router.get("/public/venues/{venue_id}/items", 
+            response_model=List[MenuItemResponseDTO],
+            summary="Get venue menu items (public)",
+            description="Get all available menu items for a specific venue (public endpoint)")
+async def get_public_venue_menu_items(
+    venue_id: str,
+    category_id: Optional[str] = None
+):
+    """Get all available menu items for a venue (public endpoint)"""
+    try:
+        logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
+        
+        repo = get_repository_manager().get_repository('menu_item')
+        
+        if category_id and category_id != "None":
+            # Get items by category
+            logger.debug(f"Getting items by category: {category_id}")
+            items_data = await repo.get_by_category(venue_id, category_id)
+        else:
+            # Get all items for venue
+            logger.debug(f"Getting all items for venue: {venue_id}")
+            items_data = await repo.get_by_venue(venue_id)
+        
+        logger.debug(f"Retrieved {len(items_data)} raw items from database")
+        
+        # Filter only available items for public access
+        available_items = [item for item in items_data if item.get('is_available', False)]
+        logger.debug(f"Filtered to {len(available_items)} available items")
+        
+        # Process items to ensure all required fields are present
+        try:
+            processed_items = process_menu_items_for_response(available_items)
+            logger.debug(f"Successfully processed {len(processed_items)} items")
+        except Exception as process_error:
+            logger.error(f"Error processing menu items: {process_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error processing menu items: {str(process_error)}"
+            )
+        
+        # Create DTO objects
+        try:
+            items = []
+            for i, item in enumerate(processed_items):
+                try:
+                    dto_item = MenuItemResponseDTO(**item)
+                    items.append(dto_item)
+                except Exception as dto_error:
+                    logger.error(f"Error creating DTO for item {i} (id: {item.get('id', 'unknown')}): {dto_error}")
+                    logger.error(f"Item data: {item}")
+                    # Skip this item and continue with others
+                    continue
+            
+            logger.info(f"Successfully created {len(items)} DTO objects from {len(processed_items)} processed items")
+        except Exception as dto_error:
+            logger.error(f"Error creating MenuItemResponseDTO objects: {dto_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error creating response objects: {str(dto_error)}"
+            )
+        
+        logger.info(f"Retrieved {len(items)} public menu items for venue: {venue_id}")
+        return items
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error getting public venue menu items: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get menu items: {str(e)}"
+        )
+
+
+# =============================================================================
 # SEARCH AND FILTER ENDPOINTS
 # =============================================================================
 
 @router.get("/venues/{venue_id}/categories", 
-            response_model=List[MenuCategory],
+            response_model=List[MenuCategoryResponseDTO],
             summary="Get venue categories",
             description="Get all categories for a specific venue")
 async def get_venue_categories(
@@ -535,7 +614,7 @@ async def get_venue_categories(
         if current_user.get('role') != 'admin':
             categories_data = [cat for cat in categories_data if cat.get('is_active', False)]
         
-        categories = [MenuCategory(**cat) for cat in categories_data]
+        categories = [MenuCategoryResponseDTO(**cat) for cat in categories_data]
         
         logger.info(f"Retrieved {len(categories)} categories for venue: {venue_id}")
         return categories
@@ -551,7 +630,7 @@ async def get_venue_categories(
 
 
 @router.get("/venues/{venue_id}/items", 
-            response_model=List[MenuItem],
+            response_model=List[MenuItemResponseDTO],
             summary="Get venue menu items",
             description="Get all menu items for a specific venue")
 async def get_venue_menu_items(
@@ -575,7 +654,10 @@ async def get_venue_menu_items(
             if current_user.get('role') != 'admin':
                 items_data = [item for item in items_data if item.get('is_available', False)]
             
-            items = [MenuItem(**item) for item in items_data]
+            # Process items to ensure all required fields are present
+            processed_items = process_menu_items_for_response(items_data)
+            
+            items = [MenuItemResponseDTO(**item) for item in processed_items]
         
         logger.info(f"Retrieved {len(items)} menu items for venue: {venue_id}")
         return items
@@ -591,7 +673,7 @@ async def get_venue_menu_items(
 
 
 @router.get("/venues/{venue_id}/search", 
-            response_model=List[MenuItem],
+            response_model=List[MenuItemResponseDTO],
             summary="Search menu items",
             description="Search menu items within a venue")
 async def search_venue_menu_items(
@@ -621,7 +703,7 @@ async def search_venue_menu_items(
 # =============================================================================
 
 @router.post("/items/bulk-update-availability", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Bulk update item availability",
              description="Update availability for multiple menu items")
 async def bulk_update_item_availability(
@@ -649,7 +731,7 @@ async def bulk_update_item_availability(
         await repo.update_batch(updates)
         
         logger.info(f"Bulk updated availability for {len(item_ids)} items")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message=f"Updated availability for {len(item_ids)} items"
         )
@@ -665,7 +747,7 @@ async def bulk_update_item_availability(
 
 
 @router.post("/categories/{category_id}/items/toggle-availability", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Toggle category items availability",
              description="Toggle availability for all items in a category")
 async def toggle_category_items_availability(
@@ -687,7 +769,7 @@ async def toggle_category_items_availability(
         await repo.update_batch(updates)
         
         logger.info(f"Toggled availability for {len(items_data)} items in category: {category_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message=f"Updated availability for {len(items_data)} items in category"
         )

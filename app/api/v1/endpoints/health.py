@@ -7,7 +7,9 @@ from typing import Dict, Any
 from datetime import datetime
 import time
 
-from app.models.schemas import ApiResponse
+from app.models.dto import ApiResponse
+from app.core.auth_dependencies import get_auth_status, get_conditional_current_user
+from fastapi import Depends
 
 router = APIRouter()
 
@@ -113,6 +115,61 @@ async def test_auth():
         )
 
 
+@router.get("/auth-status", response_model=ApiResponse)
+async def auth_status():
+    """Get current authentication configuration status"""
+    try:
+        auth_config = get_auth_status()
+        
+        return ApiResponse(
+            success=True,
+            message="Authentication status retrieved",
+            data=auth_config
+        )
+        
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            message=f"Failed to get auth status: {str(e)}",
+            data={"error": str(e)}
+        )
+
+
+@router.get("/test-conditional-auth", response_model=ApiResponse)
+async def test_conditional_auth(current_user: Dict[str, Any] = Depends(get_conditional_current_user)):
+    """Test conditional authentication (works with both JWT and development mode)"""
+    try:
+        user_info = {
+            "user_id": current_user.get("id"),
+            "email": current_user.get("email"),
+            "role": current_user.get("role"),
+            "first_name": current_user.get("first_name"),
+            "last_name": current_user.get("last_name"),
+            "is_active": current_user.get("is_active"),
+            "workspace_id": current_user.get("workspace_id"),
+            "venue_ids": current_user.get("venue_ids", [])
+        }
+        
+        auth_config = get_auth_status()
+        
+        return ApiResponse(
+            success=True,
+            message="Conditional authentication test successful",
+            data={
+                "user": user_info,
+                "auth_config": auth_config,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        )
+        
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            message=f"Conditional auth test failed: {str(e)}",
+            data={"error": str(e)}
+        )
+
+
 @router.post("/test-login", response_model=ApiResponse)
 async def test_login_process():
     """Test the login process without credentials"""
@@ -140,5 +197,95 @@ async def test_login_process():
         return ApiResponse(
             success=False,
             message=f"Login process test failed: {str(e)}",
+            data={"error": str(e)}
+        )
+
+
+@router.get("/security-status", response_model=ApiResponse)
+async def security_status():
+    """Get security configuration status and recommendations"""
+    try:
+        from app.core.config import validate_configuration, settings
+        from app.core.security_middleware import get_security_middleware_config
+        
+        # Validate configuration
+        config_validation = validate_configuration()
+        
+        # Get security middleware status
+        middleware_config = get_security_middleware_config()
+        
+        # Security recommendations
+        recommendations = []
+        warnings = []
+        
+        # Check critical security settings
+        if hasattr(settings, 'SECRET_KEY') and "CHANGE-THIS" in settings.SECRET_KEY:
+            warnings.append("Default SECRET_KEY detected - MUST be changed in production")
+        
+        if not settings.is_jwt_auth_enabled and settings.is_production:
+            warnings.append("JWT authentication disabled in production environment")
+        
+        if "*" in settings.CORS_ORIGINS:
+            warnings.append("CORS wildcard detected - not recommended for production")
+        
+        if settings.is_production and settings.DEBUG:
+            warnings.append("DEBUG mode enabled in production")
+        
+        # Generate recommendations
+        if not settings.is_production:
+            recommendations.append("Enable JWT authentication for production deployment")
+            recommendations.append("Configure specific CORS origins for production")
+            recommendations.append("Set strong SECRET_KEY for production")
+        
+        security_status_data = {
+            "environment": settings.ENVIRONMENT,
+            "jwt_auth_enabled": settings.is_jwt_auth_enabled,
+            "security_middleware": middleware_config,
+            "configuration_valid": config_validation["valid"],
+            "warnings": warnings + config_validation.get("warnings", []),
+            "errors": config_validation.get("errors", []),
+            "recommendations": recommendations,
+            "security_features": {
+                "password_hashing": "bcrypt with configurable rounds",
+                "jwt_security": "Enhanced with audience/issuer validation",
+                "rate_limiting": "IP-based with auth endpoint protection",
+                "security_headers": "Comprehensive security headers",
+                "request_validation": "Input sanitization and size limits",
+                "development_mode_protection": "Warnings and logging"
+            }
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="Security status retrieved",
+            data=security_status_data
+        )
+        
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            message=f"Failed to get security status: {str(e)}",
+            data={"error": str(e)}
+        )
+
+
+@router.get("/password-hash-info", response_model=ApiResponse)
+async def get_password_hash_info():
+    """Get information for implementing client-side password hashing"""
+    try:
+        from app.core.unified_password_security import get_client_hashing_info
+        
+        hash_info = get_client_hashing_info()
+        
+        return ApiResponse(
+            success=True,
+            message="Password hashing information retrieved",
+            data=hash_info
+        )
+        
+    except Exception as e:
+        return ApiResponse(
+            success=False,
+            message=f"Failed to get password hash info: {str(e)}",
             data={"error": str(e)}
         )

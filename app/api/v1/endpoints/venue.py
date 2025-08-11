@@ -5,27 +5,53 @@ Refactored with standardized patterns, workspace isolation, and comprehensive CR
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
 
-from app.models.schemas import (
-    VenueCreate, VenueUpdate, Venue, ApiResponse, PaginatedResponse,
-    VenueOperatingHours, SubscriptionPlan, SubscriptionStatus
+from app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus, VenueStatus
+from app.models.dto import (
+    VenueCreateDTO, VenueUpdateDTO, VenueResponseDTO, ApiResponseDTO, PaginatedResponseDTO
 )
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_venue_repo, VenueRepository
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
+from app.core.generic_utils import (
+    validate_superadmin_only, validate_resource_ownership, handle_endpoint_errors,
+    safe_get_resource, generic_activate_resource, create_success_response
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
 
 
-class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate]):
+def clean_venue_status(venue_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Clean and normalize venue status field"""
+    if 'status' in venue_data:
+        status_value = venue_data['status']
+        # Handle cases where status might be incorrectly formatted
+        if isinstance(status_value, str):
+            # Remove any extra quotes that might be present
+            cleaned_status = status_value.strip("'\"")
+            # Validate against enum values
+            valid_statuses = [e.value for e in VenueStatus]
+            if cleaned_status in valid_statuses:
+                venue_data['status'] = cleaned_status
+            else:
+                venue_data['status'] = VenueStatus.ACTIVE.value
+        else:
+            venue_data['status'] = VenueStatus.ACTIVE.value
+    else:
+        venue_data['status'] = VenueStatus.ACTIVE.value
+    
+    return venue_data
+
+
+class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdateDTO]):
     """Enhanced Venues endpoint with workspace isolation and comprehensive CRUD"""
     
     def __init__(self):
         super().__init__(
             model_class=Venue,
-            create_schema=VenueCreate,
-            update_schema=VenueUpdate,
+            create_schema=VenueCreateDTO,
+            update_schema=VenueUpdateDTO,
             collection_name="venues",
             require_auth=True,
             require_admin=True
@@ -59,22 +85,13 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate venue creation permissions"""
-        if not current_user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required"
-            )
-        
-        # Get user role properly
-        from app.core.security import _get_user_role
-        user_role = await _get_user_role(current_user)
-        
-        # Only superadmin can create venues
-        if user_role != 'superadmin':
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only superadmin can create venues"
-            )
+        # Use consolidated permission validation
+        from app.core.generic_utils import validate_user_permissions
+        await validate_user_permissions(
+            current_user,
+            ['venue:create', 'venue:manage'],
+            resource_type='venue'
+        )
     
     async def _validate_access_permissions(self, 
                                          item: Dict[str, Any], 
@@ -86,28 +103,9 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
         # Call parent workspace validation
         await super()._validate_access_permissions(item, current_user)
         
-        # Get user role properly
-        from app.core.security import _get_user_role
-        user_role = await _get_user_role(current_user)
-        
-        # Additional venue-specific validation
-        if user_role == 'superadmin':
-            return  # Superadmin can access all venues
-        elif user_role == 'admin':
-            # Admin can only access venues they manage
-            if item.get('admin_id') != current_user['id']:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Admin can only access venues they manage"
-                )
-        else:
-            # Operators and others need to be venue owner/admin
-            if (item.get('owner_id') != current_user['id'] and 
-                item.get('admin_id') != current_user['id']):
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Not authorized for this venue"
-                )
+        # Use consolidated resource access validation
+        from app.core.generic_utils import validate_resource_access
+        await validate_resource_access(current_user, item, "read")
     
     async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
@@ -117,10 +115,13 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
         query_filters = []
         
         # Add workspace filter for non-admin users
-        if current_user and current_user.get('role') != 'admin':
-            workspace_id = current_user.get('workspace_id')
-            if workspace_id:
-                query_filters.append(('workspace_id', '==', workspace_id))
+        if current_user:
+            from app.core.security import _get_user_role
+            user_role = await _get_user_role(current_user)
+            if user_role not in ['admin', 'superadmin']:
+                workspace_id = current_user.get('workspace_id')
+                if workspace_id:
+                    query_filters.append(('workspace_id', '==', workspace_id))
         
         # Add additional filters
         if filters:
@@ -129,6 +130,72 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
                     query_filters.append((field, '==', value))
         
         return query_filters
+    
+    async def get_items(self, 
+                       page: int = 1, 
+                       page_size: int = 10,
+                       search: Optional[str] = None,
+                       filters: Optional[Dict[str, Any]] = None,
+                       current_user: Optional[Dict[str, Any]] = None):
+        """Get paginated list of venues with proper status handling"""
+        try:
+            repo = self.get_repository()
+            
+            # Build query filters
+            query_filters = await self._build_query_filters(filters, search, current_user)
+            
+            # Get all items matching filters
+            all_items = await repo.query(query_filters) if query_filters else await repo.get_all()
+            
+            # Apply text search if provided
+            if search:
+                search_lower = search.lower()
+                # Basic text search - override in subclasses for more sophisticated search
+                all_items = [
+                    item for item in all_items
+                    if any(search_lower in str(value).lower() for value in item.values() if isinstance(value, str))
+                ]
+            
+            # Filter items based on user permissions
+            filtered_items = await self._filter_items_for_user(all_items, current_user)
+            
+            # Calculate pagination
+            total = len(filtered_items)
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            items_page = filtered_items[start_idx:end_idx]
+            
+            # Convert to model objects with proper status handling
+            items = []
+            for item in items_page:
+                item = clean_venue_status(item)
+                items.append(VenueResponseDTO(**item))
+            
+            # Calculate pagination metadata
+            total_pages = (total + page_size - 1) // page_size
+            has_next = page < total_pages
+            has_prev = page > 1
+            
+            from app.models.dto import PaginatedResponse
+            return PaginatedResponse(
+                success=True,
+                data=items,
+                total=total,
+                page=page,
+                page_size=page_size,
+                total_pages=total_pages,
+                has_next=has_next,
+                has_prev=has_prev
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting venues list: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get venues list"
+            )
     
     async def search_venues_by_text(self, 
                                   search_term: str,
@@ -148,7 +215,12 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
             limit=50
         )
         
-        return [Venue(**venue) for venue in matching_venues]
+        # Clean and add default status if missing
+        venues = []
+        for venue in matching_venues:
+            venue = clean_venue_status(venue)
+            venues.append(VenueResponseDTO(**venue))
+        return venues
     
     async def get_venues_by_subscription_status(self, 
                                              status: SubscriptionStatus,
@@ -160,13 +232,51 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreate, VenueUpdate])
         filters = [('subscription_status', '==', status.value)]
         
         # Add workspace filter for non-admin users
-        if current_user.get('role') != 'admin':
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        if user_role not in ['admin', 'superadmin']:
             workspace_id = current_user.get('workspace_id')
             if workspace_id:
                 filters.append(('workspace_id', '==', workspace_id))
         
         venues_data = await repo.query(filters)
-        return [Venue(**venue) for venue in venues_data]
+        # Clean and add default status if missing
+        venues = []
+        for venue in venues_data:
+            venue = clean_venue_status(venue)
+            venues.append(VenueResponseDTO(**venue))
+        return venues
+    
+    async def get_item(self, 
+                      item_id: str, 
+                      current_user: Optional[Dict[str, Any]]):
+        """Get venue by ID with proper status handling"""
+        try:
+            repo = self.get_repository()
+            item = await repo.get_by_id(item_id)
+            
+            if not item:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Venue not found"
+                )
+            
+            # Validate access
+            await self._validate_access_permissions(item, current_user)
+            
+            # Clean and ensure status field is properly set
+            item = clean_venue_status(item)
+            
+            return VenueResponseDTO(**item)
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error getting venue: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to get venue"
+            )
     
     async def get_venue_analytics(self, 
                                venue_id: str,
@@ -222,7 +332,7 @@ venues_endpoint = VenuesEndpoint()
 # =============================================================================
 
 @router.get("/public", 
-            response_model=PaginatedResponse,
+            response_model=PaginatedResponseDTO,
             summary="Get public venues",
             description="Get paginated list of active venues (public endpoint)")
 async def get_public_venues(
@@ -265,8 +375,11 @@ async def get_public_venues(
         end_idx = start_idx + page_size
         venues_page = all_venues[start_idx:end_idx]
         
-        # Convert to Venue objects
-        venues = [Venue(**venue) for venue in venues_page]
+        # Convert to Venue objects - clean and add default status if missing
+        venues = []
+        for venue in venues_page:
+            venue = clean_venue_status(venue)
+            venues.append(VenueResponseDTO(**venue))
         
         # Calculate pagination metadata
         total_pages = (total + page_size - 1) // page_size
@@ -275,7 +388,7 @@ async def get_public_venues(
         
         logger.info(f"Public venues retrieved: {len(venues)} of {total}")
         
-        return PaginatedResponse(
+        return PaginatedResponseDTO(
             success=True,
             data=venues,
             total=total,
@@ -295,7 +408,7 @@ async def get_public_venues(
 
 
 @router.get("/public/{venue_id}", 
-            response_model=Venue,
+            response_model=VenueResponseDTO,
             summary="Get public venue details",
             description="Get venue details by ID (public endpoint)")
 async def get_public_venue(venue_id: str):
@@ -317,8 +430,14 @@ async def get_public_venue(venue_id: str):
                 detail="Venue not found"
             )
         
+        # Clean and add default status if missing
+        venue = clean_venue_status(venue)
+        
+        # Debug: Log the actual status value to understand the issue
+        logger.info(f"Venue {venue_id} status value: {repr(venue.get('status'))}")
+        
         logger.info(f"Public venue retrieved: {venue_id}")
-        return Venue(**venue)
+        return VenueResponseDTO(**venue)
         
     except HTTPException:
         raise
@@ -334,8 +453,8 @@ async def get_public_venue(venue_id: str):
 # AUTHENTICATED ENDPOINTS
 # =============================================================================
 
-@router.get("/", 
-            response_model=PaginatedResponse,
+@router.get("", 
+            response_model=PaginatedResponseDTO,
             summary="Get venues",
             description="Get paginated list of venues (authenticated)")
 async def get_venues(
@@ -362,13 +481,13 @@ async def get_venues(
     )
 
 
-@router.post("/", 
-             response_model=ApiResponse,
+@router.post("", 
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create venue",
              description="Create a new venue")
 async def create_venue(
-    venue_data: VenueCreate,
+    venue_data: VenueCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Create a new venue"""
@@ -376,7 +495,7 @@ async def create_venue(
 
 
 @router.get("/my-venues", 
-            response_model=List[Venue],
+            response_model=List[VenueResponseDTO],
             summary="Get my venues",
             description="Get venues owned by current user")
 async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin_user)):
@@ -385,7 +504,11 @@ async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin
         repo = get_venue_repo()
         venues_data = await repo.get_by_owner(current_user["id"])
         
-        venues = [Venue(**venue) for venue in venues_data]
+        # Clean and add default status if missing
+        venues = []
+        for venue in venues_data:
+            venue = clean_venue_status(venue)
+            venues.append(VenueResponseDTO(**venue))
         
         logger.info(f"Retrieved {len(venues)} venues for user {current_user['id']}")
         return venues
@@ -399,7 +522,7 @@ async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin
 
 
 @router.get("/{venue_id}", 
-            response_model=Venue,
+            response_model=VenueResponseDTO,
             summary="Get venue by ID",
             description="Get specific venue by ID")
 async def get_venue(
@@ -411,12 +534,12 @@ async def get_venue(
 
 
 @router.put("/{venue_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update venue",
             description="Update venue information")
 async def update_venue(
     venue_id: str,
-    venue_update: VenueUpdate,
+    venue_update: VenueUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update venue information"""
@@ -424,7 +547,7 @@ async def update_venue(
 
 
 @router.delete("/{venue_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Delete venue",
                description="Deactivate venue (soft delete)")
 async def delete_venue(
@@ -436,45 +559,24 @@ async def delete_venue(
 
 
 @router.post("/{venue_id}/activate", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Activate venue",
              description="Activate deactivated venue")
+@handle_endpoint_errors("Venue activation")
 async def activate_venue(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Activate venue"""
-    try:
-        repo = get_venue_repo()
-        
-        # Check if venue exists
-        venue = await repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Venue not found"
-            )
-        
-        # Validate permissions
-        await venues_endpoint._validate_access_permissions(venue, current_user)
-        
-        # Activate venue
-        await repo.update(venue_id, {"is_active": True})
-        
-        logger.info(f"Venue activated: {venue_id}")
-        return ApiResponse(
-            success=True,
-            message="Venue activated successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error activating venue: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to activate venue"
-        )
+    repo = get_venue_repo()
+    
+    return await generic_activate_resource(
+        repo=repo,
+        resource_id=venue_id,
+        current_user=current_user,
+        resource_name="Venue",
+        validation_func=venues_endpoint._validate_access_permissions
+    )
 
 
 # =============================================================================
@@ -482,7 +584,7 @@ async def activate_venue(
 # =============================================================================
 
 @router.get("/search/text", 
-            response_model=List[Venue],
+            response_model=List[VenueResponseDTO],
             summary="Search venues",
             description="Search venues by name, description, or cuisine")
 async def search_venues(
@@ -507,7 +609,7 @@ async def search_venues(
 
 
 @router.get("/filter/subscription/{status}", 
-            response_model=List[Venue],
+            response_model=List[VenueResponseDTO],
             summary="Get venues by subscription status",
             description="Get venues filtered by subscription status")
 async def get_venues_by_subscription(
@@ -565,7 +667,7 @@ async def get_venue_analytics(
 # =============================================================================
 
 @router.post("/{venue_id}/logo", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Upload venue logo",
              description="Upload venue logo image")
 async def upload_venue_logo(
@@ -590,7 +692,7 @@ async def upload_venue_logo(
         await repo.update(venue_id, {"logo_url": logo_url})
         
         logger.info(f"Logo uploaded for venue: {venue_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Logo uploaded successfully",
             data={"logo_url": logo_url}
@@ -611,7 +713,7 @@ async def upload_venue_logo(
 # =============================================================================
 
 @router.put("/{venue_id}/hours", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update operating hours",
             description="Update venue operating hours")
 async def update_operating_hours(
@@ -630,7 +732,7 @@ async def update_operating_hours(
         await repo.update(venue_id, {"operating_hours": hours_data})
         
         logger.info(f"Operating hours updated for venue: {venue_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Operating hours updated successfully"
         )
@@ -675,7 +777,7 @@ async def get_operating_hours(
 # =============================================================================
 
 @router.put("/{venue_id}/subscription", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update subscription",
             description="Update venue subscription plan and status")
 async def update_subscription(
@@ -697,7 +799,7 @@ async def update_subscription(
         })
         
         logger.info(f"Subscription updated for venue: {venue_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Subscription updated successfully"
         )
@@ -709,4 +811,59 @@ async def update_subscription(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update subscription"
+        )
+
+
+# =============================================================================
+# DATA MAINTENANCE ENDPOINTS
+# =============================================================================
+
+@router.post("/fix-venue-status", 
+             response_model=ApiResponseDTO,
+             summary="Fix venue status data",
+             description="Fix any venues with incorrect status values")
+async def fix_venue_status_data(
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Fix venue status data for all venues"""
+    try:
+        # Only allow superadmin to run this
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        if user_role != 'superadmin':
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only superadmin can run data maintenance"
+            )
+        
+        repo = get_venue_repo()
+        all_venues = await repo.get_all()
+        
+        fixed_count = 0
+        for venue in all_venues:
+            original_status = venue.get('status')
+            cleaned_venue = clean_venue_status(venue.copy())
+            new_status = cleaned_venue.get('status')
+            
+            # If status was changed, update the venue
+            if original_status != new_status:
+                await repo.update(venue['id'], {'status': new_status})
+                fixed_count += 1
+                logger.info(f"Fixed venue {venue['id']} status from {repr(original_status)} to {repr(new_status)}")
+        
+        logger.info(f"Venue status data maintenance completed. Fixed {fixed_count} venues.")
+        
+        return ApiResponseDTO(
+            success=True,
+            message=f"Venue status data fixed. Updated {fixed_count} venues.",
+            data={"fixed_count": fixed_count, "total_venues": len(all_venues)}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fixing venue status data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fix venue status data"
         )

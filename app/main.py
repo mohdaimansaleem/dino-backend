@@ -87,22 +87,50 @@ app = FastAPI(
     lifespan=lifespan,
     docs_url=docs_url,
     redoc_url=redoc_url,
-    redirect_slashes=False,
+    redirect_slashes=False,  # Disable automatic slash redirection to prevent 307 redirects
 )
 
 # =============================================================================
 # MIDDLEWARE SETUP
 # =============================================================================
 
+# Security middleware (add first for maximum protection)
+try:
+    from app.core.security_middleware import (
+        SecurityHeadersMiddleware,
+        RateLimitMiddleware,
+        RequestValidationMiddleware,
+        AuthenticationRateLimitMiddleware,
+        DevelopmentModeSecurityMiddleware
+    )
+    
+    # Add security middleware in order of priority
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(DevelopmentModeSecurityMiddleware)
+    app.add_middleware(RequestValidationMiddleware)
+    app.add_middleware(AuthenticationRateLimitMiddleware)
+    app.add_middleware(
+        RateLimitMiddleware,
+        calls=getattr(settings, 'RATE_LIMIT_PER_MINUTE', 60),
+        period=60
+    )
+    logger.info("✅ Security middleware enabled")
+except ImportError as e:
+    logger.warning(f"⚠️ Security middleware import failed: {e} - Continuing without security middleware")
+except Exception as e:
+    logger.warning(f"⚠️ Security middleware setup failed: {e}")
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=getattr(settings, 'CORS_ORIGINS', ["*"]),
+    allow_origins=getattr(settings, 'CORS_ORIGINS', ["http://localhost:3000"]),
     allow_credentials=getattr(settings, 'CORS_ALLOW_CREDENTIALS', True),
-    allow_methods=getattr(settings, 'CORS_ALLOW_METHODS', ["*"]),
+    allow_methods=getattr(settings, 'CORS_ALLOW_METHODS', ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]),
     allow_headers=getattr(settings, 'CORS_ALLOW_HEADERS', ["*"]),
 )
 logger.info("✅ CORS middleware enabled")
+
+
 
 # Include API routes if available
 if api_router_available:
@@ -134,10 +162,22 @@ async def root():
     }
 
 
+def get_deployment_info():
+    """Get deployment verification info"""
+    from datetime import datetime
+    return {
+        "deployment_time": datetime.utcnow().isoformat(),
+        "services_init_fixed": True,
+        "circular_imports_fixed": True,
+        "dashboard_service_lazy": True,
+        "api_router_should_work": True,
+        "version": "fixed_v2"
+    }
+
+
 @app.get("/deployment-check")
 async def deployment_check():
     """Check if latest deployment is active"""
-    from app.deployment_check import get_deployment_info
     return get_deployment_info()
 
 

@@ -1,0 +1,404 @@
+{
+  "info": {
+    "name": "Enhanced Permission Endpoints",
+    "description": "Collection for testing enhanced permission management endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_role_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "User Permissions",
+      "item": [
+        {
+          "name": "Get User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/users/{{test_user_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "{{test_user_id}}", "permissions"]
+            },
+            "description": "Get all permissions assigned to a specific user through their role"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/me/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "me", "permissions"]
+            },
+            "description": "Get permissions for the currently authenticated user"
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Permissions Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/users/{{test_user_id}}/permissions/summary",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "{{test_user_id}}", "permissions", "summary"]
+            },
+            "description": "Get user permissions summary grouped by resource"
+          },
+          "response": []
+        },
+        {
+          "name": "Get User Permissions Detailed",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/users/{{test_user_id}}/permissions/detailed",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "{{test_user_id}}", "permissions", "detailed"]
+            },
+            "description": "Get user permissions with detailed role information"
+          },
+          "response": []
+        },
+        {
+          "name": "Check User Permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  \"venue.read\",\n  \"order.create\",\n  \"user.update\",\n  \"menu.delete\",\n  \"nonexistent.permission\"\n]"
+            },
+            "url": {
+              "raw": "{{base_url}}/permissions/users/{{test_user_id}}/permissions/check",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "{{test_user_id}}", "permissions", "check"]
+            },
+            "description": "Check if user has specific permissions"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Role Permissions",
+      "item": [
+        {
+          "name": "Get Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/roles/{{test_role_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "roles", "{{test_role_id}}", "permissions"]
+            },
+            "description": "Get all permissions assigned to a specific role"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Role Permissions Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/roles/{{test_role_id}}/permissions/summary",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "roles", "{{test_role_id}}", "permissions", "summary"]
+            },
+            "description": "Get role permissions summary grouped by resource"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Access Validation",
+      "item": [
+        {
+          "name": "Validate User Access - Venue Read",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{test_user_id}}\",\n  \"resource\": \"venue\",\n  \"action\": \"read\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/permissions/validate-access",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "validate-access"]
+            },
+            "description": "Validate if user has access to read venues"
+          },
+          "response": []
+        },
+        {
+          "name": "Validate User Access - Order Create",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{test_user_id}}\",\n  \"resource\": \"order\",\n  \"action\": \"create\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/permissions/validate-access",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "validate-access"]
+            },
+            "description": "Validate if user has access to create orders"
+          },
+          "response": []
+        },
+        {
+          "name": "Validate User Access - Admin Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{test_user_id}}\",\n  \"resource\": \"user\",\n  \"action\": \"delete\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/permissions/validate-access",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "validate-access"]
+            },
+            "description": "Validate if user has access to delete users (admin action)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Authorization Tests",
+      "item": [
+        {
+          "name": "Unauthorized Access (No Token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "auth": {
+              "type": "noauth"
+            },
+            "url": {
+              "raw": "{{base_url}}/permissions/users/test-user/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "test-user", "permissions"]
+            },
+            "description": "Test unauthorized access - should return 401"
+          },
+          "response": []
+        },
+        {
+          "name": "Access Other User Permissions (Non-Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/users/different-user-id/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "users", "different-user-id", "permissions"]
+            },
+            "description": "Test accessing another user's permissions - should return 403 for non-admin users"
+          },
+          "response": []
+        },
+        {
+          "name": "Access Role Permissions (Non-Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions/roles/test-role-id/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["permissions", "roles", "test-role-id", "permissions"]
+            },
+            "description": "Test accessing role permissions - should return 403 for non-admin users"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Setup & Utilities",
+      "item": [
+        {
+          "name": "Get Current User Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/users/profile",
+              "host": ["{{base_url}}"],
+              "path": ["users", "profile"]
+            },
+            "description": "Get current user profile to extract user ID for testing"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Roles List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/roles?page_size=10",
+              "host": ["{{base_url}}"],
+              "path": ["roles"],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get list of roles to extract role ID for testing"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Permissions List",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/permissions?page_size=20",
+              "host": ["{{base_url}}"],
+              "path": ["permissions"],
+              "query": [
+                {
+                  "key": "page_size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get list of permissions to understand available permissions"
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-extract user ID from profile response",
+          "if (pm.info.requestName === 'Get Current User Profile') {",
+          "    // This will be handled in the test script",
+          "}",
+          "",
+          "// Auto-extract role ID from roles list response",
+          "if (pm.info.requestName === 'Get Roles List') {",
+          "    // This will be handled in the test script",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-extract user ID from profile response",
+          "if (pm.info.requestName === 'Get Current User Profile' && pm.response.code === 200) {",
+          "    const responseJson = pm.response.json();",
+          "    if (responseJson.id) {",
+          "        pm.collectionVariables.set('test_user_id', responseJson.id);",
+          "        console.log('Set test_user_id:', responseJson.id);",
+          "    }",
+          "    if (responseJson.role_id) {",
+          "        pm.collectionVariables.set('test_role_id', responseJson.role_id);",
+          "        console.log('Set test_role_id:', responseJson.role_id);",
+          "    }",
+          "}",
+          "",
+          "// Auto-extract role ID from roles list response",
+          "if (pm.info.requestName === 'Get Roles List' && pm.response.code === 200) {",
+          "    const responseJson = pm.response.json();",
+          "    if (responseJson.data && responseJson.data.length > 0) {",
+          "        const firstRole = responseJson.data[0];",
+          "        if (firstRole.id && !pm.collectionVariables.get('test_role_id')) {",
+          "            pm.collectionVariables.set('test_role_id', firstRole.id);",
+          "            console.log('Set test_role_id from roles list:', firstRole.id);",
+          "        }",
+          "    }",
+          "}",
+          "",
+          "// General response validation",
+          "pm.test('Response time is less than 5000ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});",
+          "",
+          "// Log response for debugging",
+          "if (pm.response.code >= 400) {",
+          "    console.log('Error Response:', pm.response.text());",
+          "} else {",
+          "    console.log('Success Response Status:', pm.response.code);",
+          "}"
+        ]
+      }
+    }
+  ]
+}

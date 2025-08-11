@@ -4,13 +4,15 @@ Complete CRUD for tables with QR code generation and status management
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+from datetime import datetime
 import hashlib
 import base64
 import json
 
-from app.models.schemas import (
-    Table, TableCreate, TableUpdate, TableStatus,
-    ApiResponse, PaginatedResponse, QRCodeData
+from app.models.schemas import Table, TableStatus
+from app.models.dto import (
+    TableCreateDTO, TableUpdateDTO, TableResponseDTO, QRCodeDataDTO,
+    ApiResponseDTO, PaginatedResponseDTO
 )
 from pydantic import BaseModel
 # Removed base endpoint dependency
@@ -23,14 +25,14 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreate, TableUpdate]):
+class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdateDTO]):
     """Enhanced Tables endpoint with QR code management and status tracking"""
     
     def __init__(self):
         super().__init__(
             model_class=Table,
-            create_schema=TableCreate,
-            update_schema=TableUpdate,
+            create_schema=TableCreateDTO,
+            update_schema=TableUpdateDTO,
             collection_name="tables",
             require_auth=True,
             require_admin=True
@@ -78,7 +80,7 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreate, TableUpdate])
         # Combine encoded data with hash
         return f"{qr_encoded}.{qr_hash}"
     
-    def _verify_qr_code(self, qr_code: str) -> Optional[QRCodeData]:
+    def _verify_qr_code(self, qr_code: str) -> Optional[QRCodeDataDTO]:
         """Verify and decode QR code"""
         try:
             # Split encoded data and hash
@@ -102,10 +104,12 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreate, TableUpdate])
             qr_json = qr_bytes.decode('utf-8')
             qr_data = json.loads(qr_json)
             
-            return QRCodeData(
+            return QRCodeDataDTO(
                 venue_id=qr_data['venue_id'],
+                table_id=qr_data.get('table_id', ''),
                 table_number=qr_data['table_number'],
-                encrypted_token=qr_code
+                encrypted_token=qr_code,
+                generated_at=datetime.utcnow()
             )
             
         except Exception:
@@ -140,25 +144,33 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreate, TableUpdate])
     async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
         from app.database.firestore import get_venue_repo
+        from app.core.security import _get_user_role
+        
         venue_repo = get_venue_repo()
         
         venue = await venue_repo.get_by_id(venue_id)
         if not venue:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cafe not found"
+                detail="Venue not found"
             )
         
-        # Check venue access permissions
-        if current_user.get('role') != 'admin':
-            user_workspace_id = current_user.get('workspace_id')
-            venue_workspace_id = venue.get('workspace_id')
-            
-            if user_workspace_id != venue_workspace_id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Access denied: Cafe belongs to different workspace"
-                )
+        # Get the actual role name from role_id
+        user_role = await _get_user_role(current_user)
+        
+        # SuperAdmin and Admin have access to all venues
+        if user_role in ['superadmin', 'admin']:
+            return
+        
+        # For other roles, check workspace access
+        user_workspace_id = current_user.get('workspace_id')
+        venue_workspace_id = venue.get('workspace_id')
+        
+        if user_workspace_id != venue_workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Venue belongs to different workspace"
+            )
     
     async def get_table_by_qr_code(self, qr_code: str) -> Optional[Table]:
         """Get table by QR code"""
@@ -231,8 +243,8 @@ tables_endpoint = TablesEndpoint()
 # TABLE MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("/", 
-            response_model=PaginatedResponse,
+@router.get("", 
+            response_model=PaginatedResponseDTO,
             summary="Get tables",
             description="Get paginated list of tables")
 async def get_tables(
@@ -260,13 +272,13 @@ async def get_tables(
     )
 
 
-@router.post("/", 
-             response_model=ApiResponse,
+@router.post("", 
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create table",
              description="Create a new table with QR code")
 async def create_table(
-    table_data: TableCreate,
+    table_data: TableCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Create a new table"""
@@ -274,7 +286,7 @@ async def create_table(
 
 
 @router.get("/{table_id}", 
-            response_model=Table,
+            response_model=TableResponseDTO,
             summary="Get table by ID",
             description="Get specific table by ID")
 async def get_table(
@@ -286,12 +298,12 @@ async def get_table(
 
 
 @router.put("/{table_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update table",
             description="Update table information")
 async def update_table(
     table_id: str,
-    table_update: TableUpdate,
+    table_update: TableUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update table information"""
@@ -299,7 +311,7 @@ async def update_table(
 
 
 @router.delete("/{table_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Delete table",
                description="Deactivate table (soft delete)")
 async def delete_table(
@@ -318,7 +330,7 @@ class TableStatusUpdate(BaseModel):
     new_status: TableStatus
 
 @router.put("/{table_id}/status", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update table status",
             description="Update table status (available, occupied, etc.)")
 async def update_table_status(
@@ -331,7 +343,7 @@ async def update_table_status(
         success = await tables_endpoint.update_table_status(table_id, status_update.new_status, current_user)
         
         if success:
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message=f"Table status updated to {status_update.new_status.value}"
             )
@@ -352,7 +364,7 @@ async def update_table_status(
 
 
 @router.post("/{table_id}/occupy", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Occupy table",
              description="Mark table as occupied")
 async def occupy_table(
@@ -366,7 +378,7 @@ async def occupy_table(
         )
         
         if success:
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message="Table marked as occupied"
             )
@@ -387,7 +399,7 @@ async def occupy_table(
 
 
 @router.post("/{table_id}/free", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Free table",
              description="Mark table as available")
 async def free_table(
@@ -401,7 +413,7 @@ async def free_table(
         )
         
         if success:
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message="Table marked as available"
             )
@@ -465,7 +477,7 @@ async def get_table_qr_code(
 
 
 @router.post("/{table_id}/regenerate-qr", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Regenerate table QR code",
              description="Regenerate QR code for table")
 async def regenerate_table_qr_code(
@@ -487,7 +499,7 @@ async def regenerate_table_qr_code(
         })
         
         logger.info(f"QR code regenerated for table: {table_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="QR code regenerated successfully",
             data={"qr_code": new_qr_code}
@@ -539,7 +551,7 @@ async def verify_qr_code(
         if not venue:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Cafe not found"
+                detail="Venue not found"
             )
         
         return {
@@ -570,11 +582,11 @@ async def verify_qr_code(
 
 
 # =============================================================================
-# CAFE TABLE ENDPOINTS
+# VENUE TABLE ENDPOINTS
 # =============================================================================
 
 @router.get("/venues/{venue_id}/tables", 
-            response_model=List[Table],
+            response_model=List[TableResponseDTO],
             summary="Get venue tables",
             description="Get all tables for a specific venue")
 async def get_venue_tables(
@@ -595,10 +607,12 @@ async def get_venue_tables(
             tables_data = await repo.get_by_venue(venue_id)
         
         # Filter active tables for non-admin users
-        if current_user.get('role') != 'admin':
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
+        if user_role not in ['admin', 'superadmin']:
             tables_data = [table for table in tables_data if table.get('is_active', False)]
         
-        tables = [Table(**table) for table in tables_data]
+        tables = [TableResponseDTO(**table) for table in tables_data]
         
         logger.info(f"Retrieved {len(tables)} tables for venue: {venue_id}")
         return tables
@@ -643,7 +657,7 @@ async def get_venue_table_statistics(
 # =============================================================================
 
 @router.post("/bulk-create", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Bulk create tables",
              description="Create multiple tables at once")
 async def bulk_create_tables(
@@ -690,7 +704,7 @@ async def bulk_create_tables(
         created_ids = await repo.create_batch(tables_to_create)
         
         logger.info(f"Bulk created {len(created_ids)} tables for venue: {venue_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message=f"Created {len(created_ids)} tables successfully",
             data={"created_count": len(created_ids), "table_ids": created_ids}
@@ -707,7 +721,7 @@ async def bulk_create_tables(
 
 
 @router.post("/bulk-update-status", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Bulk update table status",
              description="Update status for multiple tables")
 async def bulk_update_table_status(
@@ -735,7 +749,7 @@ async def bulk_update_table_status(
         await repo.update_batch(updates)
         
         logger.info(f"Bulk updated status for {len(table_ids)} tables to {new_status.value}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message=f"Updated status for {len(table_ids)} tables to {new_status.value}"
         )

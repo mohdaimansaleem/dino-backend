@@ -3,13 +3,15 @@ User Management API Endpoints
 Comprehensive user management with authentication, profiles, and administration
 """
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer
 
-from app.models.schemas import (
-    UserCreate, User, UserUpdate, UserLogin, AuthToken,
-    ApiResponse, ImageUploadResponse,
-    PaginatedResponse
+from app.models.schemas import User
+from app.models.dto import (
+    UserCreateDTO, AdminUserCreateDTO, UserUpdateDTO, UserLoginDTO, UserResponseDTO,
+    AuthTokenDTO, ApiResponseDTO, SimpleApiResponseDTO,
+    PaginatedResponseDTO
 )
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_user_repo, UserRepository
@@ -17,21 +19,27 @@ from app.database.validated_repository import get_validated_user_repo, Validated
 from app.services.validation_service import get_validation_service
 from app.core.dependency_injection import get_auth_service
 from app.core.security import get_current_user, get_current_admin_user
+from app.core.unified_password_security import password_handler
 from app.core.logging_config import get_logger
+from app.core.generic_utils import (
+    validate_user_role, validate_admin_or_superadmin, validate_resource_ownership,
+    handle_endpoint_errors, safe_get_resource, generic_activate_resource,
+    create_success_response, validate_unique_field
+)
 
 logger = get_logger(__name__)
 router = APIRouter()
 security = HTTPBearer()
 
 
-class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
+class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreateDTO, UserUpdateDTO]):
     """User endpoint with standardized CRUD operations"""
     
     def __init__(self):
         super().__init__(
             model_class=User,
-            create_schema=UserCreate,
-            update_schema=UserUpdate,
+            create_schema=UserCreateDTO,
+            update_schema=UserUpdateDTO,
             collection_name="users",
             require_auth=True,
             require_admin=False
@@ -51,7 +59,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         data['is_active'] = True
         data['is_verified'] = False
         data['email_verified'] = False
-        data['mobile_verified'] = False
+        data['phone_verified'] = False
         
         return data
     
@@ -79,28 +87,27 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         if item['id'] == current_user['id']:
             return
         
-        # Get user role from role_id
-        from app.core.security import _get_user_role
-        user_role = await _get_user_role(current_user)
+        # Use consolidated permission validation
+        from app.core.generic_utils import validate_user_permissions, get_user_role_cached
         
-        # Superadmin can update any user, Admin can only update operators
-        if user_role == 'superadmin':
-            return
-        elif user_role == 'admin':
+        # Check if user has permission to update users
+        await validate_user_permissions(
+            current_user,
+            ['user:manage', 'user:update'],
+            resource_id=item.get('id'),
+            resource_type='user'
+        )
+        
+        # Additional role-specific checks
+        user_role = await get_user_role_cached(current_user)
+        if user_role == 'admin':
             # Admin can only update operator users
-            from app.core.security import _get_user_role
-            target_user_role = await _get_user_role(item)
-            if target_user_role != 'operator':
+            target_user_role = await get_user_role_cached(item)
+            if target_user_role not in ['operator']:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="Admin can only update operator users"
                 )
-            return
-        
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this user"
-        )
     
     async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
@@ -130,7 +137,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
         base_filters = await self._build_query_filters(None, None, current_user)
         
         # Search in multiple fields
-        search_fields = ['first_name', 'last_name', 'email', 'mobile_number']
+        search_fields = ['first_name', 'last_name', 'email', 'phone']
         matching_users = await repo.search_text(
             search_fields=search_fields,
             search_term=search_term,
@@ -138,7 +145,7 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreate, UserUpdate]):
             limit=50
         )
         
-        return [User.from_dict(user) for user in matching_users]
+        return [UserResponseDTO(**user) for user in matching_users]
 
 
 # Initialize endpoint
@@ -150,11 +157,11 @@ user_endpoint = UserEndpoint()
 # =============================================================================
 
 @router.post("/register", 
-             response_model=AuthToken,
+             response_model=AuthTokenDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Register new user",
              description="Register a new user account. Public endpoint - no authentication required.")
-async def register_user(user_data: UserCreate):
+async def register_user(user_data: UserCreateDTO):
     """Register a new user with comprehensive validation"""
     try:
         # Get validation service
@@ -172,7 +179,7 @@ async def register_user(user_data: UserCreate):
         user = await get_auth_service().register_user(user_data)
         
         # Login user immediately after registration
-        login_data = UserLogin(email=user_data.email, password=user_data.password)
+        login_data = UserLoginDTO(email=user_data.email, password=user_data.password)
         token = await get_auth_service().login_user(login_data)
         
         logger.info(f"User registered successfully: {user_data.email}")
@@ -189,10 +196,10 @@ async def register_user(user_data: UserCreate):
 
 
 @router.post("/login", 
-             response_model=AuthToken,
+             response_model=AuthTokenDTO,
              summary="User login",
              description="Authenticate user and return JWT token")
-async def login_user(login_data: UserLogin):
+async def login_user(login_data: UserLoginDTO):
     """Login user"""
     try:
         token = await get_auth_service().login_user(login_data)
@@ -219,20 +226,20 @@ async def login_user(login_data: UserLogin):
 # =============================================================================
 
 @router.get("/profile", 
-            response_model=User,
+            response_model=UserResponseDTO,
             summary="Get user profile",
             description="Get current user's profile information")
 async def get_user_profile(current_user: Dict[str, Any] = Depends(get_current_user)):
     """Get current user profile"""
-    return User.from_dict(current_user)
+    return UserResponseDTO(**current_user)
 
 
 @router.put("/profile", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update user profile",
             description="Update current user's profile information")
 async def update_user_profile(
-    update_data: UserUpdate,
+    update_data: UserUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update user profile"""
@@ -248,23 +255,23 @@ async def update_user_profile(
                     detail="Email already in use"
                 )
         
-        # Check if mobile number is being updated and is unique
-        if hasattr(update_data, 'mobile_number') and update_data.mobile_number and update_data.mobile_number != current_user.get("mobile_number"):
-            existing_mobile = await user_repo.get_by_mobile(update_data.mobile_number)
-            if existing_mobile:
+        # Check if phone number is being updated and is unique
+        if hasattr(update_data, 'phone') and update_data.phone and update_data.phone != current_user.get("phone"):
+            existing_phone = await user_repo.get_by_phone(update_data.phone)
+            if existing_phone:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Mobile number already in use"
+                    detail="Phone number already in use"
                 )
         
         # Update user
         updated_user = await get_auth_service().update_user(current_user['id'], update_data.dict(exclude_unset=True))
         
         logger.info(f"User profile updated: {current_user['id']}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Profile updated successfully",
-            data=User.from_dict(updated_user)
+            data=UserResponseDTO(**updated_user)
         )
         
     except HTTPException:
@@ -277,95 +284,211 @@ async def update_user_profile(
         )
 
 
-@router.post("/profile/image", 
-             response_model=ImageUploadResponse,
-             summary="Upload profile image",
-             description="Upload user profile image")
-async def upload_profile_image(
-    file: UploadFile = File(...),
+# =============================================================================
+# USER MANAGEMENT ENDPOINTS (Admin)
+# =============================================================================
+
+@router.get("", 
+            response_model=PaginatedResponseDTO,
+            summary="Get users",
+            description="Get paginated list of users (open access)")
+async def get_users(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+    search: Optional[str] = Query(None, description="Search by name, email, or phone number"),
+    role_id: Optional[str] = Query(None, description="Filter by role ID"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Upload user profile image"""
+    """Get users with pagination and filtering"""
     try:
-        # TODO: Implement storage service
-        # storage_service = get_storage_service()
-        # image_url = await storage_service.upload_image(...)
+        logger.info(f"GET /users called - page: {page}, page_size: {page_size}, search: {search}, role_id: {role_id}, is_active: {is_active}")
         
-        # Mock implementation for now
-        mock_image_url = f"https://example.com/profiles/{current_user['id']}/profile.jpg"
-        
-        # Update user profile with image URL
+        # Get user repository directly
         user_repo = get_user_repo()
-        await user_repo.update(current_user['id'], {
-            "profile_image_url": mock_image_url
-        })
         
-        logger.info(f"Profile image uploaded for user: {current_user['id']}")
-        return ImageUploadResponse(
+        # Build filters
+        query_filters = []
+        if role_id:
+            query_filters.append(('role_id', '==', role_id))
+        if is_active is not None:
+            query_filters.append(('is_active', '==', is_active))
+        
+        # Get all users first (for total count)
+        if query_filters:
+            all_users = await user_repo.query(query_filters)
+        else:
+            all_users = await user_repo.get_all()
+        
+        logger.info(f"Found {len(all_users)} total users in database")
+        
+        # Apply search filter if provided
+        if search:
+            search_term = search.lower()
+            filtered_users = []
+            for user in all_users:
+                # Search in name, email, phone
+                if (search_term in user.get('first_name', '').lower() or
+                    search_term in user.get('last_name', '').lower() or
+                    search_term in user.get('email', '').lower() or
+                    search_term in user.get('phone', '').lower()):
+                    filtered_users.append(user)
+            all_users = filtered_users
+            logger.info(f"After search filter: {len(all_users)} users")
+        
+        # Calculate pagination
+        total = len(all_users)
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        
+        # Apply pagination
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_users = all_users[start_idx:end_idx]
+        
+        # Remove sensitive data and convert to response format
+        response_users = []
+        for user in paginated_users:
+            # Remove sensitive fields
+            user_copy = user.copy()
+            user_copy.pop('hashed_password', None)
+            
+            # Convert to UserResponseDTO format
+            try:
+                user_response = UserResponseDTO(**user_copy)
+                response_users.append(user_response.dict())
+            except Exception as e:
+                logger.warning(f"Error converting user {user.get('id', 'unknown')} to response format: {e}")
+                # Fallback: include basic fields
+                response_users.append({
+                    'id': user.get('id'),
+                    'email': user.get('email'),
+                    'first_name': user.get('first_name'),
+                    'last_name': user.get('last_name'),
+                    'phone': user.get('phone'),
+                    'role_id': user.get('role_id'),
+                    'is_active': user.get('is_active', True),
+                    'created_at': user.get('created_at'),
+                    'updated_at': user.get('updated_at')
+                })
+        
+        logger.info(f"Returning {len(response_users)} users for page {page}")
+        
+        return PaginatedResponseDTO(
             success=True,
-            file_url=mock_image_url,
-            file_name=file.filename,
-            file_size=0,
-            content_type=file.content_type
+            data=response_users,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            has_next=page < total_pages,
+            has_prev=page > 1
+        )
+        
+    except Exception as e:
+        logger.error(f"Error getting users: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get users"
+        )
+
+
+@router.post("", 
+             response_model=ApiResponseDTO,
+             status_code=status.HTTP_201_CREATED,
+             summary="Create user",
+             description="Create a new user (open access)")
+async def create_user(
+    user_data: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Create a new user with pre-hashed password"""
+    try:
+        logger.info(f"POST /users called with data: {user_data}")
+        
+        # Basic validation
+        required_fields = ['email', 'phone', 'first_name', 'last_name', 'password', 'role_id']
+        for field in required_fields:
+            if field not in user_data:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Missing required field: {field}"
+                )
+        
+        # Get user repository
+        user_repo = get_user_repo()
+        
+        # Check if email already exists
+        existing_email = await user_repo.get_by_email(user_data['email'])
+        if existing_email:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already exists"
+            )
+        
+        # Check if phone already exists
+        existing_phone = await user_repo.get_by_phone(user_data['phone'])
+        if existing_phone:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already exists"
+            )
+        
+        # Handle password using unified password handler
+        # This will detect if password is client-hashed and process accordingly
+        server_hash, is_client_hashed = password_handler.handle_password_input(
+            user_data['password'],
+            require_client_hash=True  # Enforce client hashing for admin user creation
+        )
+        
+        logger.info(f"Password processed - Client hashed: {is_client_hashed}")
+        
+        # Generate consistent UUID for user ID
+        import uuid
+        user_id = str(uuid.uuid4())
+        
+        # Prepare user data
+        new_user_data = {
+            'id': user_id,  # Set consistent UUID format
+            'email': user_data['email'],
+            'phone': user_data['phone'],
+            'first_name': user_data['first_name'],
+            'last_name': user_data['last_name'],
+            'hashed_password': server_hash,  # Store the properly processed server hash
+            'role_id': user_data['role_id'],
+            'venue_ids': user_data.get('venue_ids', []),  # Default to empty array if not provided
+            'is_active': True,
+            'is_verified': False,
+            'email_verified': False,
+            'phone_verified': False,
+            'created_at': datetime.utcnow(),
+            'updated_at': datetime.utcnow()
+        }
+        
+        # Create user with specific UUID (returns the full created user data, not just ID)
+        created_user = await user_repo.create(new_user_data, doc_id=user_id)
+        
+        # Remove hashed_password from response
+        created_user.pop('hashed_password', None)
+        
+        logger.info(f"User created successfully: {user_data['email']}")
+        return ApiResponseDTO(
+            success=True,
+            message="User created successfully",
+            data=created_user
         )
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error uploading profile image: {e}")
+        logger.error(f"Error creating user: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Image upload failed"
+            detail=f"Failed to create user: {str(e)}"
         )
 
 
-# =============================================================================
-# USER MANAGEMENT ENDPOINTS (Admin)
-# =============================================================================
-
-@router.get("/", 
-            response_model=PaginatedResponse,
-            summary="Get users",
-            description="Get paginated list of users (admin only)")
-async def get_users(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    search: Optional[str] = Query(None, description="Search by name, email, or mobile number"),
-    role_id: Optional[str] = Query(None, description="Filter by role ID"),
-    is_active: Optional[bool] = Query(None, description="Filter by active status"),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Get users with pagination and filtering"""
-    filters = {}
-    if role_id:
-        filters['role_id'] = role_id
-    if is_active is not None:
-        filters['is_active'] = is_active
-    
-    return await user_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        search=search,
-        filters=filters,
-        current_user=current_user
-    )
-
-
-@router.post("/", 
-             response_model=ApiResponse,
-             status_code=status.HTTP_201_CREATED,
-             summary="Create user",
-             description="Create a new user (admin only)")
-async def create_user(
-    user_data: UserCreate,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Create a new user"""
-    return await user_endpoint.create_item(user_data, current_user)
-
-
 @router.get("/{user_id}", 
-            response_model=User,
+            response_model=UserResponseDTO,
             summary="Get user by ID",
             description="Get specific user by ID")
 async def get_user(
@@ -377,39 +500,85 @@ async def get_user(
 
 
 @router.put("/{user_id}", 
-            response_model=ApiResponse,
+            response_model=SimpleApiResponseDTO,
             summary="Update user",
             description="Update user by ID")
 async def update_user(
     user_id: str,
-    update_data: UserUpdate,
+    update_data: UserUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update user by ID"""
-    return await user_endpoint.update_item(user_id, update_data, current_user)
+    try:
+        # Get the user repository
+        user_repo = get_user_repo()
+        
+        # Get the user to validate it exists and check permissions
+        user = await user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Validate update permissions
+        await user_endpoint._validate_update_permissions(user, current_user)
+        
+        # Prepare update data
+        update_dict = update_data.dict(exclude_unset=True)
+        if not update_dict:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No data provided for update"
+            )
+        
+        # Check for unique constraints if email or phone is being updated
+        if 'email' in update_dict and update_dict['email'] != user.get('email'):
+            existing_user = await user_repo.get_by_email(update_dict['email'])
+            if existing_user and existing_user['id'] != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already in use"
+                )
+        
+        if 'phone' in update_dict and update_dict['phone'] != user.get('phone'):
+            existing_phone = await user_repo.get_by_phone(update_dict['phone'])
+            if existing_phone and existing_phone['id'] != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already in use"
+                )
+        
+        # Update the user
+        await user_repo.update(user_id, update_dict)
+        
+        logger.info(f"User updated successfully: {user_id}")
+        
+        # Return success message without user data
+        return SimpleApiResponseDTO(
+            success=True,
+            message="User data updated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user"
+        )
 
 
-@router.delete("/{user_id}", 
-               response_model=ApiResponse,
-               summary="Delete user",
-               description="Deactivate user by ID (soft delete)")
-async def delete_user(
+@router.put("/{user_id}/deactivate", 
+            response_model=SimpleApiResponseDTO,
+            summary="Deactivate user",
+            description="Deactivate user by ID (set is_active to False)")
+async def deactivate_user(
     user_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Delete user (soft delete by deactivating)"""
-    return await user_endpoint.delete_item(user_id, current_user, soft_delete=True)
-
-
-@router.post("/{user_id}/activate", 
-             response_model=ApiResponse,
-             summary="Activate user",
-             description="Activate deactivated user")
-async def activate_user(
-    user_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Activate user"""
+    """Deactivate user (set is_active to False)"""
     try:
         user_repo = get_user_repo()
         
@@ -424,11 +593,53 @@ async def activate_user(
         # Validate permissions
         await user_endpoint._validate_update_permissions(user, current_user)
         
-        # Activate user
+        # Deactivate user by setting is_active to False
+        await user_repo.update(user_id, {"is_active": False})
+        
+        logger.info(f"User deactivated: {user_id} by {current_user['id']}")
+        return SimpleApiResponseDTO(
+            success=True,
+            message="User deactivated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deactivating user {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate user"
+        )
+
+
+@router.put("/{user_id}/activate", 
+            response_model=SimpleApiResponseDTO,
+            summary="Activate user",
+            description="Activate user by ID (set is_active to True)")
+async def activate_user(
+    user_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Activate user (set is_active to True)"""
+    try:
+        user_repo = get_user_repo()
+        
+        # Check if user exists
+        user = await user_repo.get_by_id(user_id)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found"
+            )
+        
+        # Validate permissions
+        await user_endpoint._validate_update_permissions(user, current_user)
+        
+        # Activate user by setting is_active to True
         await user_repo.update(user_id, {"is_active": True})
         
-        logger.info(f"User activated: {user_id}")
-        return ApiResponse(
+        logger.info(f"User activated: {user_id} by {current_user['id']}")
+        return SimpleApiResponseDTO(
             success=True,
             message="User activated successfully"
         )
@@ -436,7 +647,7 @@ async def activate_user(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error activating user: {e}")
+        logger.error(f"Error activating user {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to activate user"
@@ -448,7 +659,7 @@ async def activate_user(
 # =============================================================================
 
 @router.get("/search/text", 
-            response_model=List[User],
+            response_model=List[UserResponseDTO],
             summary="Search users",
             description="Search users by name, email, or phone")
 async def search_users(
@@ -457,15 +668,13 @@ async def search_users(
 ):
     """Search users by text"""
     try:
-        # Check permissions - get user role from role_id
-        from app.core.security import _get_user_role
-        user_role = await _get_user_role(current_user)
-        
-        if user_role not in ["admin", "operator", "superadmin"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not authorized to search users"
-            )
+        # Validate permissions using consolidated utility
+        from app.core.generic_utils import validate_user_permissions
+        await validate_user_permissions(
+            current_user,
+            ['user:read', 'user:search'],
+            resource_type='user'
+        )
         
         users = await user_endpoint.search_users_by_text(q, current_user)
         
@@ -475,10 +684,10 @@ async def search_users(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error searching users: {e}")
+        logger.error(f"Error in user search: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Search failed"
+            detail="User search failed"
         )
 
 
@@ -493,7 +702,7 @@ async def search_users(
 # =============================================================================
 
 @router.post("/change-password", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Change password",
              description="Change user password")
 async def change_password(
@@ -511,7 +720,7 @@ async def change_password(
         
         if success:
             logger.info(f"Password changed for user: {current_user['id']}")
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message="Password changed successfully"
             )
@@ -532,7 +741,7 @@ async def change_password(
 
 
 @router.post("/deactivate", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Deactivate account",
              description="Deactivate current user account")
 async def deactivate_account(
@@ -544,7 +753,7 @@ async def deactivate_account(
         
         if success:
             logger.info(f"Account deactivated for user: {current_user['id']}")
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message="Account deactivated successfully"
             )

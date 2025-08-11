@@ -93,12 +93,17 @@ class FirestoreRepository(EnhancedLoggerMixin):
             data['updated_at'] = datetime.utcnow()
             
             if doc_id:
+                # Ensure the id field matches the document ID
+                data['id'] = doc_id
                 doc_ref = self.collection.document(doc_id)
                 doc_ref.set(data)
                 created_id = doc_id
             else:
-                doc_ref = self.collection.add(data)[1]
+                # Generate document reference first to get the ID
+                doc_ref = self.collection.document()
                 created_id = doc_ref.id
+                data['id'] = created_id
+                doc_ref.set(data)
             
             duration_ms = (time.time() - start_time) * 1000
             
@@ -122,8 +127,7 @@ class FirestoreRepository(EnhancedLoggerMixin):
                              doc_id=created_id,
                              duration_ms=duration_ms)
             
-            # Return the created document with ID
-            data['id'] = created_id
+            # Return the created document with ID (already set above)
             return data
             
         except Exception as e:
@@ -233,6 +237,11 @@ class FirestoreRepository(EnhancedLoggerMixin):
         try:
             # Convert date objects to datetime for Firestore compatibility
             data = self._prepare_data_for_firestore(data)
+            
+            # Ensure the id field matches the document ID (don't allow changing it)
+            if 'id' in data and data['id'] != doc_id:
+                self.logger.warning(f"Attempted to change document ID from {doc_id} to {data['id']}. Ignoring id field.")
+            data['id'] = doc_id
             
             # Add update timestamp
             data['updated_at'] = datetime.utcnow()
@@ -429,6 +438,62 @@ class FirestoreRepository(EnhancedLoggerMixin):
                           count=len(items_data))
             raise
     
+    async def ensure_document_ids_consistency(self) -> Dict[str, int]:
+        """
+        Ensure all documents in the collection have their 'id' field matching the document ID.
+        Returns a dict with counts of checked and fixed documents.
+        """
+        self._ensure_collection()
+        
+        try:
+            docs = self.collection.stream()
+            checked_count = 0
+            fixed_count = 0
+            
+            batch = self.db.batch()
+            batch_operations = 0
+            
+            for doc in docs:
+                checked_count += 1
+                data = doc.to_dict()
+                
+                # Check if id field is missing or doesn't match document ID
+                if 'id' not in data or data['id'] != doc.id:
+                    data['id'] = doc.id
+                    data['updated_at'] = datetime.utcnow()
+                    
+                    doc_ref = self.collection.document(doc.id)
+                    batch.update(doc_ref, {'id': doc.id, 'updated_at': data['updated_at']})
+                    
+                    fixed_count += 1
+                    batch_operations += 1
+                    
+                    # Commit batch every 500 operations (Firestore limit)
+                    if batch_operations >= 500:
+                        batch.commit()
+                        batch = self.db.batch()
+                        batch_operations = 0
+            
+            # Commit remaining operations
+            if batch_operations > 0:
+                batch.commit()
+            
+            self.log_operation("ensure_document_ids_consistency", 
+                             collection=self.collection_name, 
+                             checked=checked_count,
+                             fixed=fixed_count)
+            
+            return {
+                "checked": checked_count,
+                "fixed": fixed_count,
+                "collection": self.collection_name
+            }
+            
+        except Exception as e:
+            self.log_error(e, "ensure_document_ids_consistency", 
+                          collection=self.collection_name)
+            raise
+    
     async def search_text(self, 
                          search_fields: List[str],
                          search_term: str,
@@ -571,9 +636,9 @@ class UserRepository(FirestoreRepository):
         results = await self.query([("email", "==", email)])
         return results[0] if results else None
     
-    async def get_by_mobile(self, mobile_number: str) -> Optional[Dict[str, Any]]:
-        """Get user by mobile number"""
-        results = await self.query([("mobile_number", "==", mobile_number)])
+    async def get_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
+        """Get user by phone number"""
+        results = await self.query([("phone", "==", phone)])
         return results[0] if results else None
     
     async def get_by_workspace(self, workspace_id: str) -> List[Dict[str, Any]]:
@@ -635,11 +700,11 @@ class MenuItemRepository(FirestoreRepository):
         """Get menu items by cafe ID"""
         return await self.query([("venue_id", "==", venue_id)])
     
-    async def get_by_category(self, venue_id: str, category: str) -> List[Dict[str, Any]]:
-        """Get menu items by cafe and category"""
+    async def get_by_category(self, venue_id: str, category_id: str) -> List[Dict[str, Any]]:
+        """Get menu items by venue and category"""
         return await self.query([
             ("venue_id", "==", venue_id),
-            ("category", "==", category)
+            ("category_id", "==", category_id)
         ])
 
 
@@ -735,9 +800,9 @@ class CustomerRepository(FirestoreRepository):
         """Get customers by cafe ID"""
         return await self.query([("venue_id", "==", venue_id)])
     
-    async def get_by_mobile(self, mobile_number: str) -> Optional[Dict[str, Any]]:
-        """Get customer by mobile number"""
-        results = await self.query([("mobile_number", "==", mobile_number)])
+    async def get_by_phone(self, phone: str) -> Optional[Dict[str, Any]]:
+        """Get customer by phone number"""
+        results = await self.query([("phone", "==", phone)])
         return results[0] if results else None
     
     async def get_by_venue_id(self, venue_id: str) -> List[Dict[str, Any]]:

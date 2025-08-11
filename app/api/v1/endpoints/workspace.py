@@ -6,9 +6,10 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime
 
-from app.models.schemas import (
-    Workspace, WorkspaceCreate, WorkspaceUpdate, ApiResponse, PaginatedResponse,
-    User, Venue
+from app.models.schemas import Workspace, User, Venue
+from app.models.dto import (
+    WorkspaceCreateDTO, WorkspaceUpdateDTO, WorkspaceResponseDTO,
+    ApiResponseDTO, PaginatedResponseDTO
 )
 from app.core.base_endpoint import BaseEndpoint
 from app.database.firestore import get_workspace_repo, WorkspaceRepository
@@ -97,8 +98,17 @@ async def public_debug_workspaces():
     try:
         logger.info("Public debug workspaces called")
         
-        # Get workspace repository
-        repo = get_workspace_repo()
+        # Check if we're in dev mode
+        import os
+        dev_mode = os.environ.get("DEV_MODE", "false").lower() == "true"
+        
+        if dev_mode:
+            logger.info("Using development mode with mock data")
+            from app.core.dev_mode import get_mock_workspace_repo
+            repo = get_mock_workspace_repo()
+        else:
+            # Get workspace repository
+            repo = get_workspace_repo()
         
         # Get all workspaces (for debugging)
         all_workspaces = await repo.get_all()
@@ -106,6 +116,7 @@ async def public_debug_workspaces():
         return {
             "success": True,
             "message": "Public debug workspaces endpoint working",
+            "dev_mode": dev_mode,
             "total_workspaces": len(all_workspaces),
             "workspaces": [
                 {
@@ -125,21 +136,29 @@ async def public_debug_workspaces():
         }
 
 
-class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreate, WorkspaceUpdate]):
+class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreateDTO, WorkspaceUpdateDTO]):
     """Enhanced Workspaces endpoint with comprehensive management"""
     
     def __init__(self):
         super().__init__(
             model_class=Workspace,
-            create_schema=WorkspaceCreate,
-            update_schema=WorkspaceUpdate,
+            create_schema=WorkspaceCreateDTO,
+            update_schema=WorkspaceUpdateDTO,
             collection_name="workspaces",
             require_auth=True,
             require_admin=True
         )
     
     def get_repository(self) -> WorkspaceRepository:
-        return get_workspace_repo()
+        # Check if we're in dev mode
+        import os
+        dev_mode = os.environ.get("DEV_MODE", "false").lower() == "true"
+        
+        if dev_mode:
+            from app.core.dev_mode import get_mock_workspace_repo
+            return get_mock_workspace_repo()
+        else:
+            return get_workspace_repo()
     
     async def _prepare_create_data(self, 
                                   data: Dict[str, Any], 
@@ -353,8 +372,8 @@ workspaces_endpoint = WorkspacesEndpoint()
 # WORKSPACE MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("/", 
-            response_model=PaginatedResponse,
+@router.get("", 
+            response_model=PaginatedResponseDTO,
             summary="Get workspaces (default)",
             description="Get paginated list of workspaces - default endpoint")
 async def get_workspaces_default(
@@ -445,13 +464,13 @@ async def debug_workspaces(
             "message": "Debug endpoint failed"
         }
 
-@router.post("/", 
-             response_model=ApiResponse,
+@router.post("", 
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create workspace",
              description="Create a new workspace")
 async def create_workspace(
-    workspace_data: WorkspaceCreate,
+    workspace_data: WorkspaceCreateDTO,
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Create a new workspace"""
@@ -459,7 +478,7 @@ async def create_workspace(
 
 
 @router.get("/all", 
-            response_model=PaginatedResponse,
+            response_model=PaginatedResponseDTO,
             summary="Get workspaces",
             description="Get paginated list of workspaces")
 async def get_workspaces(
@@ -500,7 +519,7 @@ async def get_workspaces(
 
 
 @router.get("/{workspace_id}", 
-            response_model=Workspace,
+            response_model=WorkspaceResponseDTO,
             summary="Get workspace by ID",
             description="Get specific workspace by ID")
 async def get_workspace(
@@ -512,12 +531,12 @@ async def get_workspace(
 
 
 @router.put("/{workspace_id}", 
-            response_model=ApiResponse,
+            response_model=ApiResponseDTO,
             summary="Update workspace",
             description="Update workspace information")
 async def update_workspace(
     workspace_id: str,
-    workspace_update: WorkspaceUpdate,
+    workspace_update: WorkspaceUpdateDTO,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Update workspace information"""
@@ -525,7 +544,7 @@ async def update_workspace(
 
 
 @router.delete("/{workspace_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Delete workspace",
                description="Deactivate workspace (soft delete)")
 async def delete_workspace(
@@ -537,7 +556,7 @@ async def delete_workspace(
 
 
 @router.post("/{workspace_id}/activate", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Activate workspace",
              description="Activate deactivated workspace")
 async def activate_workspace(
@@ -563,7 +582,7 @@ async def activate_workspace(
         await repo.update(workspace_id, {"is_active": True})
         
         logger.info(f"Workspace activated: {workspace_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Workspace activated successfully"
         )
@@ -742,7 +761,7 @@ async def get_workspace_analytics_summary(
 # =============================================================================
 
 @router.post("/{workspace_id}/transfer-ownership", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Transfer workspace ownership",
              description="Transfer workspace ownership to another user")
 async def transfer_workspace_ownership(
@@ -757,7 +776,7 @@ async def transfer_workspace_ownership(
         )
         
         if success:
-            return ApiResponse(
+            return ApiResponseDTO(
                 success=True,
                 message="Workspace ownership transferred successfully"
             )
@@ -778,7 +797,7 @@ async def transfer_workspace_ownership(
 
 
 @router.post("/{workspace_id}/add-venue", 
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              summary="Add venue to workspace",
              description="Add existing venue to workspace")
 async def add_venue_to_workspace(
@@ -815,7 +834,7 @@ async def add_venue_to_workspace(
             await repo.update(workspace_id, {"venue_ids": venue_ids})
         
         logger.info(f"Venue {venue_id} added to workspace {workspace_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Venue added to workspace successfully"
         )
@@ -831,7 +850,7 @@ async def add_venue_to_workspace(
 
 
 @router.delete("/{workspace_id}/remove-venue/{venue_id}", 
-               response_model=ApiResponse,
+               response_model=ApiResponseDTO,
                summary="Remove venue from workspace",
                description="Remove venue from workspace")
 async def remove_venue_from_workspace(
@@ -859,7 +878,7 @@ async def remove_venue_from_workspace(
         await venue_repo.update(venue_id, {"workspace_id": None})
         
         logger.info(f"Venue {venue_id} removed from workspace {workspace_id}")
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message="Venue removed from workspace successfully"
         )
@@ -962,7 +981,7 @@ async def validate_workspace_data(workspace_data: Dict[str, Any]):
 
 
 @router.post("/{workspace_id}/create-user",
-             response_model=ApiResponse,
+             response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create Venue User",
              description="Create Admin or Operator user for a venue")
@@ -988,7 +1007,7 @@ async def create_venue_user(
         
         logger.info(f"Venue user created: {user_id} with role {user_data.get('role')}")
         
-        return ApiResponse(
+        return ApiResponseDTO(
             success=True,
             message=f"{user_data.get('role', 'User')} created successfully",
             data={"user_id": user_id}

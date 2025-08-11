@@ -9,7 +9,7 @@ from datetime import datetime
 
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
-from app.models.schemas import ApiResponse
+from app.models.dto import ApiResponse
 
 logger = get_logger(__name__)
 router = APIRouter()
