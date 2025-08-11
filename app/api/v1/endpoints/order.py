@@ -301,7 +301,7 @@ orders_endpoint = OrdersEndpoint()
 # ORDER MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("", 
+@router.get("/", 
             response_model=PaginatedResponseDTO,
             summary="Get orders",
             description="Get paginated list of orders")
@@ -333,7 +333,7 @@ async def get_orders(
     )
 
 
-@router.post("", 
+@router.post("/", 
              response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create order",

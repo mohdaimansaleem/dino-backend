@@ -305,10 +305,9 @@ class MenuItem(BaseSchema, TimestampMixin):
     is_available: bool = Field(default=True)
     rating_total: float = Field(default=0.0, ge=0, description="Sum of all ratings")
     rating_count: int = Field(default=0, ge=0, description="Number of ratings received")
-    average_rating: float = Field(default=0.0, ge=0, description="Calculated average rating")
     
     @property
-    def calculated_average_rating(self) -> float:
+    def average_rating(self) -> float:
         """Calculate average rating from rating_total and rating_count"""
         if self.rating_count == 0:
             return 0.0
