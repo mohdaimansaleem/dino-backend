@@ -215,8 +215,10 @@ class LoginAttemptTracker:
         
         # Check if we should lock the account
         if len(self.attempts[identifier]) >= settings.MAX_LOGIN_ATTEMPTS:
-            self.lockouts[identifier] = now + timedelta(minutes=settings.LOCKOUT_DURATION_MINUTES)
-            logger.warning(f"Account locked due to too many failed attempts: {identifier}")
+            # Use 100 seconds lockout duration for multiple attempts
+            lockout_seconds = 100
+            self.lockouts[identifier] = now + timedelta(seconds=lockout_seconds)
+            logger.warning(f"Account locked for {lockout_seconds} seconds due to too many failed attempts: {identifier}")
     
     def record_successful_attempt(self, identifier: str) -> None:
         """Record a successful login attempt"""

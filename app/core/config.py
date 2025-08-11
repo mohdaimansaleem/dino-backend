@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Security Settings
     BCRYPT_ROUNDS: int = Field(default=12, description="BCrypt hashing rounds")
     MAX_LOGIN_ATTEMPTS: int = Field(default=5, description="Maximum login attempts before lockout")
-    LOCKOUT_DURATION_MINUTES: int = Field(default=15, description="Account lockout duration")
+    LOCKOUT_DURATION_MINUTES: int = Field(default=2, description="Account lockout duration (reduced to ~100 seconds)")
     REQUIRE_STRONG_PASSWORDS: bool = Field(default=True, description="Enforce strong password policy")
     
     # JWT Authentication Control
