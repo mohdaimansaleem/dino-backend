@@ -224,6 +224,21 @@ class VenuePublicInfoDTO(BaseDTO):
     average_rating: float = Field(default=0.0, description="Calculated average rating")
     logo_url: Optional[str] = None
 
+class VenueWorkspaceListDTO(BaseDTO):
+    """Simplified venue information DTO for workspace venue listings"""
+    id: str
+    name: str
+    description: Optional[str] = None
+    location: Dict[str, str] = Field(default_factory=dict, description="Simplified location info")
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    is_active: bool
+    is_open: bool = Field(default=False, description="Current operational status")
+    status: VenueStatus
+    subscription_status: SubscriptionStatus
+    created_at: datetime
+    updated_at: datetime
+
 
 # =============================================================================
 # MENU DTOs

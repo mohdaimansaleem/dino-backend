@@ -7,7 +7,8 @@ from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File,
 
 from app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus, VenueStatus
 from app.models.dto import (
-    VenueCreateDTO, VenueUpdateDTO, VenueResponseDTO, ApiResponseDTO, PaginatedResponseDTO
+    VenueCreateDTO, VenueUpdateDTO, VenueResponseDTO, VenueWorkspaceListDTO, 
+    ApiResponseDTO, PaginatedResponseDTO
 )
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_venue_repo, VenueRepository
@@ -446,6 +447,72 @@ async def get_public_venue(venue_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get venue"
+        )
+
+
+# =============================================================================
+# WORKSPACE VENUS API ENDPOINTS
+# =============================================================================
+
+@router.get("/workspace/{workspace_id}/venues", 
+            response_model=List[VenueWorkspaceListDTO],
+            summary="Get venues by workspace ID",
+            description="Get simplified venue list for workspace (Venus API)")
+async def get_venues_by_workspace(
+    workspace_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get simplified venue list for workspace (Venus API)"""
+    try:
+        # Verify workspace access
+        from app.core.security import verify_workspace_access
+        await verify_workspace_access(workspace_id, current_user)
+        
+        repo = get_venue_repo()
+        venues_data = await repo.get_by_workspace(workspace_id)
+        
+        # Convert to simplified venue DTOs with only required data
+        venues = []
+        for venue in venues_data:
+            venue = clean_venue_status(venue)
+            
+            # Create simplified location info
+            location_info = {}
+            if venue.get('location'):
+                location_info = {
+                    'city': venue['location'].get('city', ''),
+                    'state': venue['location'].get('state', ''),
+                    'country': venue['location'].get('country', ''),
+                    'address': venue['location'].get('address', '')
+                }
+            
+            # Create simplified venue DTO
+            simplified_venue = VenueWorkspaceListDTO(
+                id=venue['id'],
+                name=venue.get('name', ''),
+                description=venue.get('description'),
+                location=location_info,
+                phone=venue.get('phone'),
+                email=venue.get('email'),
+                is_active=venue.get('is_active', False),
+                is_open=venue.get('is_open', False),
+                status=venue.get('status', VenueStatus.ACTIVE),
+                subscription_status=venue.get('subscription_status', SubscriptionStatus.ACTIVE),
+                created_at=venue.get('created_at', datetime.utcnow()),
+                updated_at=venue.get('updated_at', datetime.utcnow())
+            )
+            venues.append(simplified_venue)
+        
+        logger.info(f"Retrieved {len(venues)} simplified venues for workspace: {workspace_id}")
+        return venues
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting venues for workspace {workspace_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get workspace venues"
         )
 
 

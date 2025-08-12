@@ -682,7 +682,7 @@ async def access_menu_by_qr(qr_code: str):
         
         menu_access = await public_ordering_service.verify_qr_code_and_get_menu(qr_code)
         
-        logger.info(f"QR menu accessed: venue {menu_access.venue.id}")
+        logger.info(f"QR menu accessed: venue {menu_access['venue']['id']}")
         return menu_access
         
     except HTTPException:
@@ -711,7 +711,7 @@ async def check_venue_status(venue_id: str):
         
         status_info = await public_ordering_service.check_venue_operating_status(venue_id)
         
-        logger.info(f"Venue status checked: {venue_id} - {status_info.current_status}")
+        logger.info(f"Venue status checked: {venue_id} - {status_info['current_status']}")
         return status_info
         
     except Exception as e:
@@ -738,7 +738,7 @@ async def validate_order(order_data: Dict[str, Any]):
         
         validation = await public_ordering_service.validate_order(order_data)
         
-        logger.info(f"Order validation: venue {order_data.get('venue_id')} - valid: {validation.is_valid}")
+        logger.info(f"Order validation: venue {order_data.get('venue_id')} - valid: {validation['is_valid']}")
         return validation
         
     except Exception as e:
@@ -767,7 +767,7 @@ async def create_public_order(order_data: Dict[str, Any]):
         
         order_response = await public_ordering_service.create_public_order(order_data)
         
-        logger.info(f"Public order created: {order_response.order_id}")
+        logger.info(f"Public order created: {order_response['order_id']}")
         return order_response
         
     except HTTPException:

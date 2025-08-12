@@ -238,6 +238,15 @@ async def performance_metrics():
         performance_service = get_performance_service()
         metrics = performance_service.get_performance_metrics()
         
+        # Add cache metrics
+        try:
+            from app.core.cache_service import get_cache_service
+            cache_service = get_cache_service()
+            cache_stats = cache_service.get_all_stats()
+            metrics["cache"] = cache_stats
+        except Exception as cache_error:
+            logger.warning(f"Failed to get cache metrics: {cache_error}")
+        
         return {
             "status": "success",
             "service": "dino-api",
@@ -257,18 +266,40 @@ async def performance_metrics():
 # ERROR HANDLERS
 # =============================================================================
 
-@app.exception_handler(500)
-async def internal_server_error(request, exc):
-    """Handle internal server errors"""
-    logger.error("Internal server error occurred", exc_info=True, extra={
-        "request_url": str(request.url),
-        "request_method": request.method
-    })
-    return {
-        "error": "Internal server error",
-        "message": "An unexpected error occurred",
-        "status_code": 500
-    }
+# Add enhanced error handlers
+try:
+    from app.core.error_handlers import (
+        http_exception_handler,
+        validation_exception_handler,
+        api_exception_handler,
+        general_exception_handler,
+        APIError
+    )
+    from fastapi.exceptions import RequestValidationError
+    from fastapi import HTTPException
+    
+    app.add_exception_handler(HTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(APIError, api_exception_handler)
+    app.add_exception_handler(Exception, general_exception_handler)
+    
+    logger.info("✅ Enhanced error handlers registered")
+except ImportError as e:
+    logger.warning(f"⚠️ Enhanced error handlers not available: {e}")
+    
+    # Fallback error handler
+    @app.exception_handler(500)
+    async def internal_server_error(request, exc):
+        """Handle internal server errors"""
+        logger.error("Internal server error occurred", exc_info=True, extra={
+            "request_url": str(request.url),
+            "request_method": request.method
+        })
+        return {
+            "error": "Internal server error",
+            "message": "An unexpected error occurred",
+            "status_code": 500
+        }
 
 
 # =============================================================================
