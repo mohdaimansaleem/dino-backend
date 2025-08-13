@@ -4,6 +4,7 @@ Refactored with standardized patterns, workspace isolation, and comprehensive CR
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
+from datetime import datetime
 
 from app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus, VenueStatus
 from app.models.dto import (
@@ -933,4 +934,55 @@ async def fix_venue_status_data(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fix venue status data"
+        )
+
+
+@router.get("/{venue_id}/users", 
+            response_model=List[Dict[str, Any]],
+            summary="Get venue users",
+            description="Get all users assigned to a specific venue")
+async def get_venue_users(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Get all users assigned to a specific venue"""
+    try:
+        # Validate venue access
+        venue = await venues_endpoint.get_item(venue_id, current_user)
+        
+        # Get user repository
+        from app.core.dependency_injection import get_repository_manager
+        user_repo = get_repository_manager().get_repository('user')
+        
+        # Get users assigned to this venue
+        venue_users = await user_repo.get_by_venue(venue_id)
+        
+        # Format user data for response
+        formatted_users = []
+        for user in venue_users:
+            formatted_user = {
+                "id": user.get('id'),
+                "email": user.get('email'),
+                "first_name": user.get('first_name'),
+                "last_name": user.get('last_name'),
+                "phone": user.get('phone'),
+                "role_id": user.get('role_id'),
+                "is_active": user.get('is_active', True),
+                "is_verified": user.get('is_verified', False),
+                "last_login": user.get('last_login'),
+                "created_at": user.get('created_at'),
+                "updated_at": user.get('updated_at'),
+            }
+            formatted_users.append(formatted_user)
+        
+        logger.info(f"Retrieved {len(formatted_users)} users for venue: {venue_id}")
+        return formatted_users
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting venue users: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get venue users"
         )

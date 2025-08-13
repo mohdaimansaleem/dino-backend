@@ -262,13 +262,60 @@ async def update_menu_category(
 @router.delete("/categories/{category_id}", 
                response_model=ApiResponseDTO,
                summary="Delete menu category",
-               description="Deactivate menu category (soft delete)")
+               description="Delete menu category permanently")
 async def delete_menu_category(
     category_id: str,
+    force: bool = Query(False, description="Force delete even if category has menu items"),
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Delete menu category (soft delete by deactivating)"""
-    return await categories_endpoint.delete_item(category_id, current_user, soft_delete=True)
+    """Delete menu category permanently"""
+    try:
+        # Get repositories
+        category_repo = get_repository_manager().get_repository('menu_category')
+        menu_item_repo = get_repository_manager().get_repository('menu_item')
+        
+        # Check if category exists
+        category = await category_repo.get_by_id(category_id)
+        if not category:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Menu category not found"
+            )
+        
+        # Validate permissions
+        await categories_endpoint._validate_access_permissions(category, current_user)
+        
+        # Check if category has menu items
+        items_in_category = await menu_item_repo.query([('category_id', '==', category_id)])
+        if items_in_category and not force:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot delete category: {len(items_in_category)} menu items are assigned to this category. Use force=true to delete anyway or reassign items first."
+            )
+        
+        # If force delete, remove all items in the category first
+        if force and items_in_category:
+            for item in items_in_category:
+                await menu_item_repo.delete(item['id'])
+            logger.info(f"Force deleted {len(items_in_category)} menu items in category: {category_id}")
+        
+        # Delete category from database
+        await category_repo.delete(category_id)
+        
+        logger.info(f"Menu category deleted: {category_id}")
+        return ApiResponseDTO(
+            success=True,
+            message="Menu category deleted successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting menu category: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete menu category"
+        )
 
 
 @router.post("/categories/{category_id}/image", 
@@ -393,15 +440,16 @@ async def update_menu_item(
 @router.delete("/items/{item_id}", 
                response_model=ApiResponseDTO,
                summary="Delete menu item",
-               description="Remove menu item (soft delete)")
+               description="Delete menu item permanently from database")
 async def delete_menu_item(
     item_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Delete menu item (soft delete by marking unavailable)"""
+    """Delete menu item permanently from database"""
     try:
-        # Custom soft delete for menu items - mark as unavailable
+        # Get repositories
         repo = get_repository_manager().get_repository('menu_item')
+        order_repo = get_repository_manager().get_repository('order')
         
         # Check if item exists
         item = await repo.get_by_id(item_id)
@@ -414,13 +462,18 @@ async def delete_menu_item(
         # Validate permissions
         await items_endpoint._validate_access_permissions(item, current_user)
         
-        # Mark as unavailable
-        await repo.update(item_id, {"is_available": False})
+        # Check if item is used in any orders (safety check)
+        orders_with_item = await order_repo.query([('items', 'array-contains-any', [{'menu_item_id': item_id}])])
+        if orders_with_item:
+            logger.warning(f"Menu item {item_id} is referenced in {len(orders_with_item)} orders but will be deleted")
         
-        logger.info(f"Menu item marked unavailable: {item_id}")
+        # Delete item from database
+        await repo.delete(item_id)
+        
+        logger.info(f"Menu item permanently deleted: {item_id}")
         return ApiResponseDTO(
             success=True,
-            message="Menu item removed successfully"
+            message="Menu item deleted successfully"
         )
         
     except HTTPException:
@@ -488,13 +541,189 @@ async def upload_item_images(
 # PUBLIC ENDPOINTS (No Authentication Required)
 # =============================================================================
 
+@router.get("/public/validate-qr-access", 
+             response_model=Dict[str, Any],
+             summary="Validate QR code access",
+             description="Validate QR code and return venue/table info if valid for menu access")
+async def validate_qr_code_access(qr_code: str = Query(..., description="QR code to validate")):
+    """Validate QR code and return venue/table information if valid"""
+    try:
+        # Import validation service
+        from app.services.venue_validation_service import venue_validation_service
+        
+        # Validate QR code access
+        is_valid, validation_data = await venue_validation_service.validate_qr_code_access(qr_code)
+        
+        if not is_valid:
+            # Return specific error for venue not accepting orders
+            error_data = validation_data
+            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "venue_not_accepting_orders",
+                        "message": error_data.get('message', 'Venue is not accepting orders'),
+                        "venue_name": error_data.get('venue_name'),
+                        "show_error_page": True
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail={
+                        "error": error_data.get('error_type', 'validation_failed'),
+                        "message": error_data.get('message', 'QR code validation failed')
+                    }
+                )
+        
+        logger.info(f"QR code access validated successfully for venue: {validation_data['venue']['id']}")
+        return {
+            "success": True,
+            "message": "QR code access validated successfully",
+            "data": validation_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error validating QR code access: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to validate QR code access"
+        )
+
+
+@router.get("/public/venues/{venue_id}/menu-with-validation", 
+            response_model=Dict[str, Any],
+            summary="Get complete menu with validation",
+            description="Get venue menu with categories and items after validation")
+async def get_public_venue_menu_with_validation(
+    venue_id: str,
+    table_id: Optional[str] = Query(None, description="Table ID for validation")
+):
+    """Get complete venue menu (categories and items) after validation"""
+    try:
+        # Import validation service
+        from app.services.venue_validation_service import venue_validation_service
+        
+        # Validate venue and table before showing menu
+        is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
+            venue_id, table_id
+        )
+        
+        if not is_valid:
+            # Return specific error for venue not accepting orders
+            error_data = validation_data
+            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "venue_not_accepting_orders",
+                        "message": error_data.get('message', 'Venue is not accepting orders'),
+                        "venue_name": error_data.get('venue_name'),
+                        "show_error_page": True
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": error_data.get('error_type', 'validation_failed'),
+                        "message": error_data.get('message', 'Access validation failed')
+                    }
+                )
+        
+        # Get categories
+        category_repo = get_repository_manager().get_repository('menu_category')
+        categories_data = await category_repo.get_by_venue(venue_id)
+        active_categories = [cat for cat in categories_data if cat.get('is_active', False)]
+        categories = [MenuCategoryResponseDTO(**cat) for cat in active_categories]
+        
+        # Get menu items
+        item_repo = get_repository_manager().get_repository('menu_item')
+        items_data = await item_repo.get_by_venue(venue_id)
+        available_items = [item for item in items_data if item.get('is_available', False)]
+        
+        # Process items to ensure all required fields are present
+        processed_items = process_menu_items_for_response(available_items)
+        items = []
+        for item in processed_items:
+            try:
+                dto_item = MenuItemResponseDTO(**item)
+                items.append(dto_item)
+            except Exception as dto_error:
+                logger.error(f"Error creating DTO for item {item.get('id', 'unknown')}: {dto_error}")
+                continue
+        
+        # Organize items by category
+        items_by_category = {}
+        for item in items:
+            category_id = item.category_id
+            if category_id not in items_by_category:
+                items_by_category[category_id] = []
+            items_by_category[category_id].append(item)
+        
+        logger.info(f"Retrieved complete menu for venue: {venue_id} - {len(categories)} categories, {len(items)} items")
+        
+        return {
+            "success": True,
+            "venue": validation_data['venue'],
+            "table": validation_data['table'],
+            "categories": categories,
+            "items": items,
+            "items_by_category": items_by_category,
+            "validation_timestamp": validation_data['validation_timestamp']
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting venue menu with validation: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get menu"
+        )
+
 @router.get("/public/venues/{venue_id}/categories", 
             response_model=List[MenuCategoryResponseDTO],
             summary="Get venue categories (public)",
             description="Get all active categories for a specific venue (public endpoint)")
-async def get_public_venue_categories(venue_id: str):
+async def get_public_venue_categories(
+    venue_id: str,
+    table_id: Optional[str] = Query(None, description="Table ID for validation")
+):
     """Get all active categories for a venue (public endpoint)"""
     try:
+        # Import validation service
+        from app.services.venue_validation_service import venue_validation_service
+        
+        # Validate venue and table before showing menu
+        is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
+            venue_id, table_id
+        )
+        
+        if not is_valid:
+            # Return specific error for venue not accepting orders
+            error_data = validation_data
+            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "venue_not_accepting_orders",
+                        "message": error_data.get('message', 'Venue is not accepting orders'),
+                        "venue_name": error_data.get('venue_name'),
+                        "show_error_page": True
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": error_data.get('error_type', 'validation_failed'),
+                        "message": error_data.get('message', 'Access validation failed')
+                    }
+                )
+        
         repo = get_repository_manager().get_repository('menu_category')
         categories_data = await repo.get_by_venue(venue_id)
         
@@ -506,6 +735,8 @@ async def get_public_venue_categories(venue_id: str):
         logger.info(f"Retrieved {len(categories)} public categories for venue: {venue_id}")
         return categories
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting public venue categories: {e}")
         raise HTTPException(
@@ -520,11 +751,42 @@ async def get_public_venue_categories(venue_id: str):
             description="Get all available menu items for a specific venue (public endpoint)")
 async def get_public_venue_menu_items(
     venue_id: str,
-    category_id: Optional[str] = None
+    category_id: Optional[str] = None,
+    table_id: Optional[str] = Query(None, description="Table ID for validation")
 ):
     """Get all available menu items for a venue (public endpoint)"""
     try:
-        logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
+        logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}, table: {table_id}")
+        
+        # Import validation service
+        from app.services.venue_validation_service import venue_validation_service
+        
+        # Validate venue and table before showing menu
+        is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
+            venue_id, table_id
+        )
+        
+        if not is_valid:
+            # Return specific error for venue not accepting orders
+            error_data = validation_data
+            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "error": "venue_not_accepting_orders",
+                        "message": error_data.get('message', 'Venue is not accepting orders'),
+                        "venue_name": error_data.get('venue_name'),
+                        "show_error_page": True
+                    }
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={
+                        "error": error_data.get('error_type', 'validation_failed'),
+                        "message": error_data.get('message', 'Access validation failed')
+                    }
+                )
         
         repo = get_repository_manager().get_repository('menu_item')
         

@@ -23,40 +23,48 @@ class PublicOrderingService:
     async def verify_qr_code_and_get_menu(self, qr_code: str) -> Dict[str, Any]:
         """
         Verify QR code and return venue menu with availability
+        Enhanced with venue validation service
         """
         try:
-            # Get table repository to find table by QR code
-            table_repo = self.repo_manager.get_repository('table')
-            venue_repo = self.repo_manager.get_repository('venue')
-            menu_repo = self.repo_manager.get_repository('menu_item')
+            # Import validation service
+            from app.services.venue_validation_service import venue_validation_service
             
-            # Find table by QR code
-            tables = await table_repo.query([('qr_code', '==', qr_code)])
-            if not tables:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Invalid QR code"
-                )
+            # Use the new validation service for QR code validation
+            is_valid, validation_data = await venue_validation_service.validate_qr_code_access(qr_code)
             
-            table = tables[0]
-            venue_id = table.get('venue_id')
+            if not is_valid:
+                # Handle different error types
+                error_data = validation_data
+                error_type = error_data.get('error_type', 'validation_failed')
+                
+                if error_type in ['venue_inactive', 'venue_not_operational']:
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail={
+                            "error": "venue_not_accepting_orders",
+                            "message": error_data.get('message', 'Venue is not accepting orders'),
+                            "venue_name": error_data.get('venue_name'),
+                            "show_error_page": True
+                        }
+                    )
+                elif error_type == 'invalid_qr_code':
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Invalid QR code"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=error_data.get('message', 'QR code validation failed')
+                    )
             
-            # Get venue information
-            venue = await venue_repo.get_by_id(venue_id)
-            if not venue:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail="Venue not found"
-                )
-            
-            # Check if venue is active and open
-            if not venue.get('is_active', False):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Venue is currently closed"
-                )
+            # Extract validated data
+            venue_data = validation_data['venue']
+            table_data = validation_data['table']
+            venue_id = venue_data['id']
             
             # Get menu items for the venue
+            menu_repo = self.repo_manager.get_repository('menu_item')
             menu_items = await menu_repo.query([
                 ('venue_id', '==', venue_id),
                 ('is_available', '==', True)
@@ -82,22 +90,11 @@ class PublicOrderingService:
             
             return {
                 'success': True,
-                'venue': {
-                    'id': venue['id'],
-                    'name': venue['name'],
-                    'description': venue.get('description', ''),
-                    'location': venue.get('location', {}),
-                    'phone': venue.get('phone', ''),
-                    'rating': venue.get('rating_total', 0.0) / max(venue.get('rating_count', 1), 1)
-                },
-                'table': {
-                    'id': table['id'],
-                    'table_number': table.get('table_number'),
-                    'area': table.get('area'),
-                    'capacity': table.get('capacity', 4)
-                },
+                'venue': venue_data,
+                'table': table_data,
                 'menu': menu_by_category,
-                'operating_status': await self.check_venue_operating_status(venue_id)
+                'operating_status': await venue_validation_service.check_venue_operating_status(venue_id),
+                'validation_timestamp': validation_data.get('validation_timestamp')
             }
             
         except HTTPException:
@@ -164,12 +161,13 @@ class PublicOrderingService:
                     'errors': ['Order must contain at least one item']
                 }
             
-            # Check venue status
-            venue_status = await self.check_venue_operating_status(venue_id)
+            # Check venue status using validation service
+            from app.services.venue_validation_service import venue_validation_service
+            venue_status = await venue_validation_service.check_venue_operating_status(venue_id)
             if not venue_status['is_open']:
                 return {
                     'is_valid': False,
-                    'errors': ['Venue is currently closed for orders']
+                    'errors': [venue_status.get('message', 'Venue is currently closed for orders')]
                 }
             
             # Validate menu items

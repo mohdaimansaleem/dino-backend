@@ -602,7 +602,7 @@ async def activate_workspace(
 # =============================================================================
 
 @router.get("/{workspace_id}/venues", 
-            response_model=List[Venue],
+            response_model=List[Dict[str, Any]],
             summary="Get workspace venues",
             description="Get all venues in workspace")
 async def get_workspace_venues(
@@ -618,7 +618,35 @@ async def get_workspace_venues(
         venue_repo = get_venue_repo()
         venues_data = await venue_repo.get_by_workspace(workspace_id)
         
-        venues = [Venue(**venue) for venue in venues_data]
+        # Format venues for workspace listing (simplified format)
+        venues = []
+        for venue_data in venues_data:
+            # Create simplified location info
+            location_info = {}
+            if venue_data.get('location'):
+                location_info = {
+                    'city': venue_data['location'].get('city', ''),
+                    'state': venue_data['location'].get('state', ''),
+                    'country': venue_data['location'].get('country', ''),
+                    'address': venue_data['location'].get('address', '')
+                }
+            
+            # Create simplified venue object
+            simplified_venue = {
+                'id': venue_data['id'],
+                'name': venue_data.get('name', ''),
+                'description': venue_data.get('description'),
+                'location': location_info,
+                'phone': venue_data.get('phone'),
+                'email': venue_data.get('email'),
+                'is_active': venue_data.get('is_active', False),
+                'is_open': venue_data.get('is_open', False),
+                'status': venue_data.get('status', 'active'),
+                'subscription_status': venue_data.get('subscription_status', 'active'),
+                'created_at': venue_data.get('created_at'),
+                'updated_at': venue_data.get('updated_at')
+            }
+            venues.append(simplified_venue)
         
         logger.info(f"Retrieved {len(venues)} venues for workspace: {workspace_id}")
         return venues
