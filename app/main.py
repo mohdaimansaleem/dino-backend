@@ -352,19 +352,6 @@ def get_deployment_info():
 
 
 
-def get_deployment_info():
-    """Get deployment verification info"""
-    from datetime import datetime
-    return {
-        "deployment_time": datetime.utcnow().isoformat(),
-        "services_init_fixed": True,
-        "circular_imports_fixed": True,
-        "dashboard_service_lazy": True,
-        "api_router_should_work": True,
-        "version": "fixed_v2"
-    }
-
-
 @app.get("/deployment-check")
 
 async def deployment_check():
@@ -478,34 +465,6 @@ async def liveness_check():
 @app.get("/metrics")
 
 async def performance_metrics():
-    """Performance metrics endpoint"""
-    try:
-        from app.services.performance_service import get_performance_service
-        performance_service = get_performance_service()
-        metrics = performance_service.get_performance_metrics()
-        
-        # Add cache metrics
-        try:
-            from app.core.cache_service import get_cache_service
-            cache_service = get_cache_service()
-            cache_stats = cache_service.get_all_stats()
-            metrics["cache"] = cache_stats
-        except Exception as cache_error:
-            logger.warning(f"Failed to get cache metrics: {cache_error}")
-        
-        return {
-            "status": "success",
-            "service": "dino-api",
-            "metrics": metrics,
-            "timestamp": os.environ.get("STARTUP_TIME", "unknown")
-        }
-    except Exception as e:
-        logger.error(f"Failed to get performance metrics: {e}")
-        return {
-            "status": "error",
-            "error": str(e),
-            "service": "dino-api"
-        }
 
   """Performance metrics endpoint"""
 
@@ -519,40 +478,49 @@ async def performance_metrics():
 
      
 
-# Add enhanced error handlers
-try:
-    from app.core.error_handlers import (
-        http_exception_handler,
-        validation_exception_handler,
-        api_exception_handler,
-        general_exception_handler,
-        APIError
-    )
-    from fastapi.exceptions import RequestValidationError
-    from fastapi import HTTPException
-    
-    app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(RequestValidationError, validation_exception_handler)
-    app.add_exception_handler(APIError, api_exception_handler)
-    app.add_exception_handler(Exception, general_exception_handler)
-    
-    logger.info("✅ Enhanced error handlers registered")
-except ImportError as e:
-    logger.warning(f"⚠️ Enhanced error handlers not available: {e}")
-    
-    # Fallback error handler
-    @app.exception_handler(500)
-    async def internal_server_error(request, exc):
-        """Handle internal server errors"""
-        logger.error("Internal server error occurred", exc_info=True, extra={
-            "request_url": str(request.url),
-            "request_method": request.method
-        })
-        return {
-            "error": "Internal server error",
-            "message": "An unexpected error occurred",
-            "status_code": 500
-        }
+    # Add cache metrics
+
+    try:
+
+      from app.core.cache_service import get_cache_service
+
+      cache_service = get_cache_service()
+
+      cache_stats = cache_service.get_all_stats()
+
+      metrics["cache"] = cache_stats
+
+    except Exception as cache_error:
+
+      logger.warning(f"Failed to get cache metrics: {cache_error}")
+
+     
+
+    return {
+
+      "status": "success",
+
+      "service": "dino-api",
+
+      "metrics": metrics,
+
+      "timestamp": os.environ.get("STARTUP_TIME", "unknown")
+
+    }
+
+  except Exception as e:
+
+    logger.error(f"Failed to get performance metrics: {e}")
+
+    return {
+
+      "status": "error",
+
+      "error": str(e),
+
+      "service": "dino-api"
+
+    }
 
 
 
@@ -566,29 +534,73 @@ except ImportError as e:
 
 
 
-@app.exception_handler(500)
+# Add enhanced error handlers
 
-async def internal_server_error(request, exc):
+try:
 
-  """Handle internal server errors"""
+  from app.core.error_handlers import (
 
-  logger.error("Internal server error occurred", exc_info=True, extra={
+    http_exception_handler,
 
-    "request_url": str(request.url),
+    validation_exception_handler,
 
-    "request_method": request.method
+    api_exception_handler,
 
-  })
+    general_exception_handler,
 
-  return {
+    APIError
 
-    "error": "Internal server error",
+  )
 
-    "message": "An unexpected error occurred",
+  from fastapi.exceptions import RequestValidationError
 
-    "status_code": 500
+  from fastapi import HTTPException
 
-  }
+   
+
+  app.add_exception_handler(HTTPException, http_exception_handler)
+
+  app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
+  app.add_exception_handler(APIError, api_exception_handler)
+
+  app.add_exception_handler(Exception, general_exception_handler)
+
+   
+
+  logger.info("✅ Enhanced error handlers registered")
+
+except ImportError as e:
+
+  logger.warning(f"⚠️ Enhanced error handlers not available: {e}")
+
+   
+
+  # Fallback error handler
+
+  @app.exception_handler(500)
+
+  async def internal_server_error(request, exc):
+
+    """Handle internal server errors"""
+
+    logger.error("Internal server error occurred", exc_info=True, extra={
+
+      "request_url": str(request.url),
+
+      "request_method": request.method
+
+    })
+
+    return {
+
+      "error": "Internal server error",
+
+      "message": "An unexpected error occurred",
+
+      "status_code": 500
+
+    }
 
 
 
