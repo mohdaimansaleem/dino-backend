@@ -103,7 +103,6 @@ class TableStatus(str, Enum):
     """Table status"""
     AVAILABLE = "available"
     RESERVED = "reserved"
-    BOOKED = "booked"
     OCCUPIED = "occupied"
     MAINTENANCE = "maintenance"
     OUT_OF_SERVICE = "out_of_service"
@@ -219,6 +218,10 @@ class User(BaseSchema, TimestampMixin):
     email_verified: bool = Field(default=False)
     phone_verified: bool = Field(default=False)
     last_login: Optional[datetime] = None
+    first_login_completed: bool = Field(default=False, description="Whether user has completed their first login flow")
+    tour_completed: bool = Field(default=False, description="Whether user has completed the dashboard tour")
+    tour_completed_at: Optional[datetime] = Field(None, description="When the user completed the tour")
+    tour_skipped: bool = Field(default=False, description="Whether user skipped the tour")
     
     @validator('phone')
     def validate_phone(cls, v):

@@ -58,6 +58,22 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
         
         return data
     
+    async def create_item(self, item_data, current_user):
+        """Override create_item to add WebSocket notification"""
+        try:
+            # Call parent create_item method
+            result = await super().create_item(item_data, current_user)
+            
+            # Send WebSocket notification if creation was successful
+            if result.success and result.data:
+                await self._send_order_creation_notification(result.data)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error creating order with notification: {e}")
+            raise
+    
     def _generate_order_number(self) -> str:
         """Generate unique order number"""
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
@@ -211,7 +227,7 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
         
         await repo.update(order_id, update_data)
         
-        # Send notification (TODO: implement notification service)
+        # Send real-time notification via WebSocket
         await self._send_order_status_notification(order_data, new_status)
         
         logger.info(f"Order status updated: {order_id} -> {new_status.value}")
@@ -232,10 +248,68 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
         
         return new in valid_transitions.get(current, [])
     
+    async def _send_order_creation_notification(self, order_data: Dict[str, Any]):
+        """Send real-time notification when order is created"""
+        try:
+            from app.core.websocket_manager import connection_manager
+            
+            # Get table number if available
+            table_number = None
+            table_id = order_data.get('table_id')
+            if table_id:
+                table_repo = get_repository_manager().get_repository('table')
+                table = await table_repo.get_by_id(table_id)
+                if table:
+                    table_number = table.get('table_number')
+            
+            # Prepare order data with table number
+            notification_data = {
+                **order_data,
+                'table_number': table_number
+            }
+            
+            # Send WebSocket notification to venue users
+            await connection_manager.send_order_notification(notification_data, "order_created")
+            
+            logger.info(f"WebSocket notification sent for new order {order_data.get('order_number')} in venue {order_data.get('venue_id')}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send order creation notification: {e}")
+    
     async def _send_order_status_notification(self, order_data: Dict[str, Any], new_status: OrderStatus):
-        """Send notification for order status change"""
-        # TODO: Implement notification service
-        logger.info(f"Notification sent for order {order_data['id']}: status changed to {new_status.value}")
+        """Send real-time notification for order status change"""
+        try:
+            from app.core.websocket_manager import connection_manager
+            
+            # Get current status for comparison
+            current_status = order_data.get('status', 'unknown')
+            
+            # Get table number if available
+            table_number = None
+            table_id = order_data.get('table_id')
+            if table_id:
+                table_repo = get_repository_manager().get_repository('table')
+                table = await table_repo.get_by_id(table_id)
+                if table:
+                    table_number = table.get('table_number')
+            
+            # Prepare order data with table number
+            notification_data = {
+                **order_data,
+                'table_number': table_number
+            }
+            
+            # Send WebSocket notification to venue users
+            await connection_manager.send_order_status_update(
+                notification_data, 
+                old_status=current_status, 
+                new_status=new_status.value
+            )
+            
+            logger.info(f"WebSocket notification sent for order {order_data['id']}: status changed to {new_status.value}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send order status notification: {e}")
     
     async def get_order_analytics(self, 
                                 venue_id: str,
@@ -504,7 +578,49 @@ async def get_venue_orders(
         else:
             orders_data = await repo.get_by_venue(venue_id, limit=limit)
         
-        orders = [OrderResponseDTO(**order) for order in orders_data]
+        # Process orders to ensure all required fields are present
+        processed_orders = []
+        for order in orders_data:
+            # Ensure required fields are present with defaults
+            processed_order = {
+                "id": order.get('id', ''),
+                "order_number": order.get('order_number', ''),
+                "venue_id": order.get('venue_id', venue_id),
+                "customer_id": order.get('customer_id', ''),
+                "order_type": order.get('order_type', 'dine_in'),
+                "table_id": order.get('table_id'),
+                "items": order.get('items', []),
+                "subtotal": order.get('subtotal', 0.0),
+                "tax_amount": order.get('tax_amount', 0.0),
+                "discount_amount": order.get('discount_amount', 0.0),
+                "total_amount": order.get('total_amount', 0.0),
+                "status": order.get('status', 'pending'),
+                "payment_status": order.get('payment_status', 'pending'),
+                "payment_method": order.get('payment_method'),
+                "estimated_ready_time": order.get('estimated_ready_time'),
+                "actual_ready_time": order.get('actual_ready_time'),
+                "special_instructions": order.get('special_instructions'),
+                "created_at": order.get('created_at', datetime.utcnow()),
+                "updated_at": order.get('updated_at', datetime.utcnow()),
+            }
+            
+            # Process items to ensure they have required fields
+            processed_items = []
+            for item in processed_order['items']:
+                processed_item = {
+                    "menu_item_id": item.get('menu_item_id', ''),
+                    "menu_item_name": item.get('menu_item_name', ''),
+                    "quantity": item.get('quantity', 1),
+                    "unit_price": item.get('unit_price', 0.0),
+                    "total_price": item.get('total_price', 0.0),
+                    "special_instructions": item.get('special_instructions'),
+                }
+                processed_items.append(processed_item)
+            
+            processed_order['items'] = processed_items
+            processed_orders.append(processed_order)
+        
+        orders = [OrderResponseDTO(**order) for order in processed_orders]
         
         logger.info(f"Retrieved {len(orders)} orders for venue: {venue_id}")
         return orders
@@ -515,7 +631,7 @@ async def get_venue_orders(
         logger.error(f"Error getting venue orders: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get orders"
+            detail=f"Failed to get orders: {str(e)}"
         )
 
 

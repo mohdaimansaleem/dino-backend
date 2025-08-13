@@ -308,3 +308,42 @@ async def get_live_table_status(venue_id: str, current_user: Dict[str, Any] = De
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to load live table status"
         )
+
+
+@router.get("/dashboard/venue/{venue_id}", response_model=ApiResponse)
+async def get_venue_dashboard(venue_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Get dashboard data for a specific venue with only stored database data"""
+    logger.info(f"Venue dashboard requested for venue: {venue_id} by user: {current_user.get('id')}")
+    
+    # Get user role from role_id
+    from app.core.security import _get_user_role
+    user_role = await _get_user_role(current_user)
+    
+    # Check permissions
+    if user_role not in ["admin", "operator", "superadmin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Admin or operator role required."
+        )
+    
+    # Check venue access (except for superadmin)
+    if user_role != "superadmin" and current_user.get('venue_id') != venue_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You can only view data for your assigned venue."
+        )
+    
+    try:
+        dashboard_data = await _get_dashboard_service().get_venue_dashboard_data(venue_id, current_user)
+        
+        return ApiResponse(
+            success=True,
+            message="Venue dashboard data retrieved successfully",
+            data=dashboard_data
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving venue dashboard data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load venue dashboard data"
+        )

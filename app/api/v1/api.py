@@ -24,7 +24,9 @@ from app.api.v1.endpoints import (
     user_preferences,
     venue_status,
     table_areas,
-    user_data
+    user_data,
+    websocket,
+    tour
 )
 
 api_router = APIRouter()
@@ -239,6 +241,38 @@ api_router.include_router(
         404: {"description": "Area not found"},
         403: {"description": "Access denied"},
         401: {"description": "Authentication required"}
+    }
+)
+
+# =============================================================================
+# TOUR MANAGEMENT ENDPOINTS
+# =============================================================================
+
+# Dashboard Tour Management
+api_router.include_router(
+    tour.router, 
+    prefix="/tour", 
+    tags=["tour"],
+    responses={
+        404: {"description": "Tour data not found"},
+        403: {"description": "Access denied"},
+        401: {"description": "Authentication required"}
+    }
+)
+
+# =============================================================================
+# WEBSOCKET ENDPOINTS
+# =============================================================================
+
+# WebSocket Real-time Updates
+api_router.include_router(
+    websocket.router, 
+    prefix="/ws", 
+    tags=["websocket"],
+    responses={
+        401: {"description": "Authentication required"},
+        403: {"description": "Access denied"},
+        1008: {"description": "WebSocket authentication failed"}
     }
 )
 

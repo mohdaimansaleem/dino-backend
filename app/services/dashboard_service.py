@@ -366,6 +366,140 @@ class DashboardService:
         except Exception as e:
             logger.error(f"Error getting live table status: {e}")
             raise
+    
+    async def get_venue_dashboard_data(self, venue_id: str, current_user: Dict[str, Any]) -> Dict[str, Any]:
+        """Get dashboard data for a specific venue with only stored database data"""
+        try:
+            # Get repositories
+            venue_repo = self._get_repo_manager().get_repository('venue')
+            order_repo = self._get_repo_manager().get_repository('order')
+            table_repo = self._get_repo_manager().get_repository('table')
+            menu_item_repo = self._get_repo_manager().get_repository('menu_item')
+            menu_category_repo = self._get_repo_manager().get_repository('menu_category')
+            user_repo = self._get_repo_manager().get_repository('user')
+            
+            # Validate venue exists
+            venue = await venue_repo.get_by_id(venue_id)
+            if not venue:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Venue not found"
+                )
+            
+            # Get today's date range
+            today = datetime.utcnow().date()
+            today_start = datetime.combine(today, datetime.min.time())
+            today_end = datetime.combine(today, datetime.max.time())
+            
+            # Get all orders for this venue
+            all_orders = await order_repo.get_by_venue_id(venue_id)
+            
+            # Filter today's orders
+            today_orders = [
+                order for order in all_orders
+                if order.get('created_at') and today_start <= order['created_at'] <= today_end
+            ]
+            
+            # Calculate today's revenue (only paid orders)
+            today_revenue = sum(
+                order.get('total_amount', 0) 
+                for order in today_orders 
+                if order.get('payment_status') == PaymentStatus.PAID.value
+            )
+            
+            # Get tables for this venue
+            tables = await table_repo.get_by_venue(venue_id)
+            active_tables = [t for t in tables if t.get('is_active', False)]
+            occupied_tables = [
+                t for t in active_tables 
+                if t.get('table_status') == TableStatus.OCCUPIED.value
+            ]
+            
+            # Get menu items and categories for this venue
+            menu_items = await menu_item_repo.get_by_venue(venue_id)
+            active_menu_items = [m for m in menu_items if m.get('is_available', False)]
+            menu_categories = await menu_category_repo.get_by_venue(venue_id)
+            active_categories = [c for c in menu_categories if c.get('is_active', False)]
+            
+            # Get staff for this venue
+            staff = await user_repo.get_by_venue(venue_id)
+            
+            # Get recent orders (last 10)
+            recent_orders = sorted(
+                all_orders,
+                key=lambda x: x.get('created_at', datetime.min),
+                reverse=True
+            )[:10]
+            
+            # Format recent orders with actual data
+            formatted_recent_orders = []
+            for order in recent_orders:
+                # Get table number if available
+                table_number = None
+                if order.get('table_id'):
+                    table = await table_repo.get_by_id(order['table_id'])
+                    if table:
+                        table_number = table.get('table_number')
+                
+                formatted_recent_orders.append({
+                    "id": order['id'],
+                    "order_number": order.get('order_number', 'N/A'),
+                    "table_number": table_number,
+                    "total_amount": order.get('total_amount', 0),
+                    "status": order.get('status', 'unknown'),
+                    "payment_status": order.get('payment_status', 'unknown'),
+                    "created_at": order.get('created_at', datetime.utcnow()).isoformat() if order.get('created_at') else datetime.utcnow().isoformat(),
+                })
+            
+            # Calculate order status breakdown
+            order_status_breakdown = {}
+            for status in OrderStatus:
+                count = len([o for o in all_orders if o.get('status') == status.value])
+                if count > 0:
+                    order_status_breakdown[status.value] = count
+            
+            # Calculate table status breakdown
+            table_status_breakdown = {}
+            for status in TableStatus:
+                count = len([t for t in active_tables if t.get('table_status') == status.value])
+                if count > 0:
+                    table_status_breakdown[status.value] = count
+            
+            return {
+                "venue": {
+                    "id": venue['id'],
+                    "name": venue.get('name', 'Unknown'),
+                    "is_active": venue.get('is_active', False),
+                    "is_open": venue.get('is_open', False),
+                    "status": venue.get('status', 'unknown'),
+                },
+                "summary": {
+                    "today_orders": len(today_orders),
+                    "today_revenue": today_revenue,
+                    "total_orders": len(all_orders),
+                    "total_tables": len(active_tables),
+                    "occupied_tables": len(occupied_tables),
+                    "total_menu_items": len(menu_items),
+                    "active_menu_items": len(active_menu_items),
+                    "total_categories": len(menu_categories),
+                    "active_categories": len(active_categories),
+                    "total_staff": len(staff),
+                },
+                "recent_orders": formatted_recent_orders,
+                "analytics": {
+                    "order_status_breakdown": order_status_breakdown,
+                    "table_status_breakdown": table_status_breakdown,
+                },
+                "insights": {
+                    "table_occupancy_rate": round((len(occupied_tables) / len(active_tables)) * 100, 1) if active_tables else 0,
+                    "menu_availability_rate": round((len(active_menu_items) / len(menu_items)) * 100, 1) if menu_items else 0,
+                    "average_order_value": round(today_revenue / len(today_orders), 2) if today_orders else 0,
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting venue dashboard data: {e}")
+            raise
 
 
 # Global dashboard service instance
