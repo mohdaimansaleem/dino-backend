@@ -1,38 +1,175 @@
 """
+
 Enhanced Order Management API Endpoints
+
 Complete CRUD for orders with lifecycle management and real-time updates
+
 """
+
 from typing import List, Dict, Any, Optional
+
 from fastapi import APIRouter, HTTPException, status, Depends, Query
+
 from datetime import datetime, timedelta
+
 import uuid
 
+
+
 from app.models.schemas import Order, OrderStatus, PaymentStatus, OrderType
+
 from app.models.dto import (
-    OrderCreateDTO, OrderUpdateDTO, OrderResponseDTO, OrderItemCreateDTO,
-    ApiResponseDTO, PaginatedResponseDTO
+
+  OrderCreateDTO, OrderUpdateDTO, OrderResponseDTO, OrderItemCreateDTO,
+
+  ApiResponseDTO, PaginatedResponseDTO
+
 )
+
 # Removed base endpoint dependency
+
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
+
 from app.core.dependency_injection import get_repository_manager
+
 from app.core.security import get_current_user, get_current_admin_user
+
 from app.core.logging_config import get_logger
 
+
+
 logger = get_logger(__name__)
+
 router = APIRouter()
 
 
+
+
+
 class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdateDTO]):
-    """Enhanced Orders endpoint with lifecycle management"""
-    
-    def __init__(self):
-        super().__init__(
-            model_class=Order,
-            create_schema=OrderCreateDTO,
-            update_schema=OrderUpdateDTO,
-            collection_name="orders",
-            require_auth=True,
-            require_admin=False
+
+  """Enhanced Orders endpoint with lifecycle management"""
+
+   
+
+  def __init__(self):
+
+    super().__init__(
+
+      model_class=Order,
+
+      create_schema=OrderCreateDTO,
+
+      update_schema=OrderUpdateDTO,
+
+      collection_name="orders",
+
+      require_auth=True,
+
+      require_admin=False
+
+    )
+
+   
+
+  def get_repository(self):
+
+    return get_repository_manager().get_repository('order')
+
+   
+
+  async def _prepare_create_data(self, 
+
+                 data: Dict[str, Any], 
+
+                 current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+
+    """Prepare order data before creation"""
+
+    # Generate order number
+
+    order_number = self._generate_order_number()
+
+    data['order_number'] = order_number
+
+     
+
+    # Calculate order totals
+
+    await self._calculate_order_totals(data)
+
+     
+
+    # Set default values
+
+    data['status'] = OrderStatus.PENDING.value
+
+    data['payment_status'] = PaymentStatus.PENDING.value
+
+    data['payment_method'] = None
+
+    data['estimated_ready_time'] = None
+
+    data['actual_ready_time'] = None
+
+     
+
+    return data
+
+   
+
+  def _generate_order_number(self) -> str:
+
+    """Generate unique order number"""
+
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+
+    random_suffix = str(uuid.uuid4())[:6].upper()
+
+    return f"ORD-{timestamp}-{random_suffix}"
+
+   
+
+  async def _calculate_order_totals(self, data: Dict[str, Any]):
+
+    """Calculate order totals from items"""
+
+    items = data.get('items', [])
+
+     
+
+    # Get menu item prices
+
+    menu_repo = get_repository_manager().get_repository('menu_item')
+
+     
+
+    subtotal = 0.0
+
+    order_items = []
+
+     
+
+    for item in items:
+
+      menu_item_id = item['menu_item_id']
+
+      quantity = item['quantity']
+
+       
+
+      # Get menu item details
+
+      menu_item = await menu_repo.get_by_id(menu_item_id)
+
+      if not menu_item:
+
+        raise HTTPException(
+
+          status_code=status.HTTP_404_NOT_FOUND,
+
+          detail=f"Menu item {menu_item_id} not found"
+
         )
     
     def get_repository(self):
@@ -368,203 +505,401 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
 
 
 # Initialize endpoint
+
 orders_endpoint = OrdersEndpoint()
 
 
-# =============================================================================
-# ORDER MANAGEMENT ENDPOINTS
+
+
+
 # =============================================================================
 
+# ORDER MANAGEMENT ENDPOINTS
+
+# =============================================================================
+
+
+
 @router.get("", 
-            response_model=PaginatedResponseDTO,
-            summary="Get orders",
-            description="Get paginated list of orders")
+
+      response_model=PaginatedResponseDTO,
+
+      summary="Get orders",
+
+      description="Get paginated list of orders")
+
 async def get_orders(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
-    venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
-    status: Optional[OrderStatus] = Query(None, description="Filter by order status"),
-    payment_status: Optional[PaymentStatus] = Query(None, description="Filter by payment status"),
-    order_type: Optional[OrderType] = Query(None, description="Filter by order type"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  page: int = Query(1, ge=1, description="Page number"),
+
+  page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+
+  venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
+
+  status: Optional[OrderStatus] = Query(None, description="Filter by order status"),
+
+  payment_status: Optional[PaymentStatus] = Query(None, description="Filter by payment status"),
+
+  order_type: Optional[OrderType] = Query(None, description="Filter by order type"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get orders with pagination and filtering"""
-    filters = {}
-    if venue_id:
-        filters['venue_id'] = venue_id
-    if status:
-        filters['status'] = status.value
-    if payment_status:
-        filters['payment_status'] = payment_status.value
-    if order_type:
-        filters['order_type'] = order_type.value
-    
-    return await orders_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        filters=filters,
-        current_user=current_user
-    )
+
+  """Get orders with pagination and filtering"""
+
+  filters = {}
+
+  if venue_id:
+
+    filters['venue_id'] = venue_id
+
+  if status:
+
+    filters['status'] = status.value
+
+  if payment_status:
+
+    filters['payment_status'] = payment_status.value
+
+  if order_type:
+
+    filters['order_type'] = order_type.value
+
+   
+
+  return await orders_endpoint.get_items(
+
+    page=page,
+
+    page_size=page_size,
+
+    filters=filters,
+
+    current_user=current_user
+
+  )
+
+
+
 
 
 @router.post("", 
-             response_model=ApiResponseDTO,
-             status_code=status.HTTP_201_CREATED,
-             summary="Create order",
-             description="Create a new order")
+
+       response_model=ApiResponseDTO,
+
+       status_code=status.HTTP_201_CREATED,
+
+       summary="Create order",
+
+       description="Create a new order")
+
 async def create_order(
-    order_data: OrderCreateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_data: OrderCreateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Create a new order"""
-    return await orders_endpoint.create_item(order_data, current_user)
+
+  """Create a new order"""
+
+  return await orders_endpoint.create_item(order_data, current_user)
+
+
+
 
 
 @router.get("/{order_id}", 
-            response_model=OrderResponseDTO,
-            summary="Get order by ID",
-            description="Get specific order by ID")
+
+      response_model=OrderResponseDTO,
+
+      summary="Get order by ID",
+
+      description="Get specific order by ID")
+
 async def get_order(
-    order_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get order by ID"""
-    return await orders_endpoint.get_item(order_id, current_user)
+
+  """Get order by ID"""
+
+  return await orders_endpoint.get_item(order_id, current_user)
+
+
+
 
 
 @router.put("/{order_id}", 
-            response_model=ApiResponseDTO,
-            summary="Update order",
-            description="Update order information")
+
+      response_model=ApiResponseDTO,
+
+      summary="Update order",
+
+      description="Update order information")
+
 async def update_order(
-    order_id: str,
-    order_update: OrderUpdateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_id: str,
+
+  order_update: OrderUpdateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Update order information"""
-    return await orders_endpoint.update_item(order_id, order_update, current_user)
+
+  """Update order information"""
+
+  return await orders_endpoint.update_item(order_id, order_update, current_user)
+
+
+
 
 
 # =============================================================================
+
 # ORDER STATUS MANAGEMENT ENDPOINTS
+
 # =============================================================================
+
+
 
 @router.put("/{order_id}/status", 
-            response_model=ApiResponseDTO,
-            summary="Update order status",
-            description="Update order status with validation")
+
+      response_model=ApiResponseDTO,
+
+      summary="Update order status",
+
+      description="Update order status with validation")
+
 async def update_order_status(
-    order_id: str,
-    new_status: OrderStatus,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_id: str,
+
+  new_status: OrderStatus,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Update order status"""
-    try:
-        success = await orders_endpoint.update_order_status(order_id, new_status, current_user)
-        
-        if success:
-            return ApiResponseDTO(
-                success=True,
-                message=f"Order status updated to {new_status.value}"
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Failed to update order status"
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating order status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update order status"
-        )
+
+  """Update order status"""
+
+  try:
+
+    success = await orders_endpoint.update_order_status(order_id, new_status, current_user)
+
+     
+
+    if success:
+
+      return ApiResponseDTO(
+
+        success=True,
+
+        message=f"Order status updated to {new_status.value}"
+
+      )
+
+    else:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_400_BAD_REQUEST,
+
+        detail="Failed to update order status"
+
+      )
+
+       
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error updating order status: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to update order status"
+
+    )
+
+
+
 
 
 @router.post("/{order_id}/confirm", 
-             response_model=ApiResponseDTO,
-             summary="Confirm order",
-             description="Confirm pending order")
+
+       response_model=ApiResponseDTO,
+
+       summary="Confirm order",
+
+       description="Confirm pending order")
+
 async def confirm_order(
-    order_id: str,
-    estimated_minutes: Optional[int] = Query(None, ge=1, le=120, description="Estimated preparation time"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_id: str,
+
+  estimated_minutes: Optional[int] = Query(None, ge=1, le=120, description="Estimated preparation time"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Confirm order"""
-    try:
-        # Update status to confirmed
-        success = await orders_endpoint.update_order_status(order_id, OrderStatus.CONFIRMED, current_user)
-        
-        if success and estimated_minutes:
-            # Set estimated ready time
-            repo = get_repository_manager().get_repository('order')
-            estimated_ready_time = datetime.utcnow() + timedelta(minutes=estimated_minutes)
-            await repo.update(order_id, {"estimated_ready_time": estimated_ready_time})
-        
-        return ApiResponseDTO(
-            success=True,
-            message="Order confirmed successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error confirming order: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to confirm order"
-        )
+
+  """Confirm order"""
+
+  try:
+
+    # Update status to confirmed
+
+    success = await orders_endpoint.update_order_status(order_id, OrderStatus.CONFIRMED, current_user)
+
+     
+
+    if success and estimated_minutes:
+
+      # Set estimated ready time
+
+      repo = get_repository_manager().get_repository('order')
+
+      estimated_ready_time = datetime.utcnow() + timedelta(minutes=estimated_minutes)
+
+      await repo.update(order_id, {"estimated_ready_time": estimated_ready_time})
+
+     
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="Order confirmed successfully"
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error confirming order: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to confirm order"
+
+    )
+
+
+
 
 
 @router.post("/{order_id}/cancel", 
-             response_model=ApiResponseDTO,
-             summary="Cancel order",
-             description="Cancel order with reason")
+
+       response_model=ApiResponseDTO,
+
+       summary="Cancel order",
+
+       description="Cancel order with reason")
+
 async def cancel_order(
-    order_id: str,
-    reason: Optional[str] = Query(None, description="Cancellation reason"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  order_id: str,
+
+  reason: Optional[str] = Query(None, description="Cancellation reason"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Cancel order"""
-    try:
-        # Update status to cancelled
-        success = await orders_endpoint.update_order_status(order_id, OrderStatus.CANCELLED, current_user)
-        
-        if success and reason:
-            # Add cancellation reason
-            repo = get_repository_manager().get_repository('order')
-            await repo.update(order_id, {"cancellation_reason": reason})
-        
-        return ApiResponseDTO(
-            success=True,
-            message="Order cancelled successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error cancelling order: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to cancel order"
-        )
+
+  """Cancel order"""
+
+  try:
+
+    # Update status to cancelled
+
+    success = await orders_endpoint.update_order_status(order_id, OrderStatus.CANCELLED, current_user)
+
+     
+
+    if success and reason:
+
+      # Add cancellation reason
+
+      repo = get_repository_manager().get_repository('order')
+
+      await repo.update(order_id, {"cancellation_reason": reason})
+
+     
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="Order cancelled successfully"
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error cancelling order: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to cancel order"
+
+    )
+
+
+
 
 
 # =============================================================================
+
 # VENUE ORDER ENDPOINTS
+
 # =============================================================================
+
+
 
 @router.get("/venues/{venue_id}/orders", 
-            response_model=List[OrderResponseDTO],
-            summary="Get venue orders",
-            description="Get all orders for a specific venue")
+
+      response_model=List[OrderResponseDTO],
+
+      summary="Get venue orders",
+
+      description="Get all orders for a specific venue")
+
 async def get_venue_orders(
-    venue_id: str,
-    status: Optional[OrderStatus] = Query(None, description="Filter by status"),
-    limit: Optional[int] = Query(50, ge=1, le=200, description="Maximum number of orders"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  venue_id: str,
+
+  status: Optional[OrderStatus] = Query(None, description="Filter by status"),
+
+  limit: Optional[int] = Query(50, ge=1, le=200, description="Maximum number of orders"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
     """Get all orders for a venue"""
     try:
@@ -636,156 +971,307 @@ async def get_venue_orders(
 
 
 @router.get("/venues/{venue_id}/analytics", 
-            response_model=Dict[str, Any],
-            summary="Get venue order analytics",
-            description="Get order analytics for a venue")
+
+      response_model=Dict[str, Any],
+
+      summary="Get venue order analytics",
+
+      description="Get order analytics for a venue")
+
 async def get_venue_order_analytics(
-    venue_id: str,
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics"),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  venue_id: str,
+
+  start_date: Optional[datetime] = Query(None, description="Start date for analytics"),
+
+  end_date: Optional[datetime] = Query(None, description="End date for analytics"),
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
-    """Get order analytics for a venue"""
-    try:
-        analytics = await orders_endpoint.get_order_analytics(
-            venue_id, start_date, end_date, current_user
-        )
-        
-        logger.info(f"Order analytics retrieved for venue: {venue_id}")
-        return analytics
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting order analytics: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get analytics"
-        )
+
+  """Get order analytics for a venue"""
+
+  try:
+
+    analytics = await orders_endpoint.get_order_analytics(
+
+      venue_id, start_date, end_date, current_user
+
+    )
+
+     
+
+    logger.info(f"Order analytics retrieved for venue: {venue_id}")
+
+    return analytics
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting order analytics: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get analytics"
+
+    )
+
+
+
 
 
 # =============================================================================
+
 # REAL-TIME ORDER TRACKING ENDPOINTS
+
 # =============================================================================
+
+
 
 @router.get("/venues/{venue_id}/live", 
-            response_model=Dict[str, Any],
-            summary="Get live order status",
-            description="Get real-time order status for venue dashboard")
+
+      response_model=Dict[str, Any],
+
+      summary="Get live order status",
+
+      description="Get real-time order status for venue dashboard")
+
 async def get_live_order_status(
-    venue_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  venue_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get live order status for venue dashboard"""
-    try:
-        # Validate venue access
-        await orders_endpoint._validate_venue_access(venue_id, current_user)
-        
-        repo = get_repository_manager().get_repository('order')
-        
-        # Get active orders (not completed/cancelled)
-        active_statuses = [
-            OrderStatus.PENDING.value,
-            OrderStatus.CONFIRMED.value,
-            OrderStatus.PREPARING.value,
-            OrderStatus.READY.value,
-            OrderStatus.OUT_FOR_DELIVERY.value
-        ]
-        
-        all_orders = await repo.get_by_venue(venue_id, limit=100)
-        active_orders = [
-            order for order in all_orders 
-            if order.get('status') in active_statuses
-        ]
-        
-        # Group by status
-        orders_by_status = {}
-        for status in active_statuses:
-            orders_by_status[status] = [
-                OrderResponseDTO(**order) for order in active_orders 
-                if order.get('status') == status
-            ]
-        
-        # Calculate metrics
-        total_active = len(active_orders)
-        pending_count = len(orders_by_status.get(OrderStatus.PENDING.value, []))
-        preparing_count = len(orders_by_status.get(OrderStatus.PREPARING.value, []))
-        ready_count = len(orders_by_status.get(OrderStatus.READY.value, []))
-        
-        return {
-            "venue_id": venue_id,
-            "timestamp": datetime.utcnow().isoformat(),
-            "summary": {
-                "total_active_orders": total_active,
-                "pending_orders": pending_count,
-                "preparing_orders": preparing_count,
-                "ready_orders": ready_count
-            },
-            "orders_by_status": orders_by_status
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting live order status: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get live order status"
-        )
+
+  """Get live order status for venue dashboard"""
+
+  try:
+
+    # Validate venue access
+
+    await orders_endpoint._validate_venue_access(venue_id, current_user)
+
+     
+
+    repo = get_repository_manager().get_repository('order')
+
+     
+
+    # Get active orders (not completed/cancelled)
+
+    active_statuses = [
+
+      OrderStatus.PENDING.value,
+
+      OrderStatus.CONFIRMED.value,
+
+      OrderStatus.PREPARING.value,
+
+      OrderStatus.READY.value,
+
+      OrderStatus.OUT_FOR_DELIVERY.value
+
+    ]
+
+     
+
+    all_orders = await repo.get_by_venue(venue_id, limit=100)
+
+    active_orders = [
+
+      order for order in all_orders 
+
+      if order.get('status') in active_statuses
+
+    ]
+
+     
+
+    # Group by status
+
+    orders_by_status = {}
+
+    for status in active_statuses:
+
+      orders_by_status[status] = [
+
+        OrderResponseDTO(**order) for order in active_orders 
+
+        if order.get('status') == status
+
+      ]
+
+     
+
+    # Calculate metrics
+
+    total_active = len(active_orders)
+
+    pending_count = len(orders_by_status.get(OrderStatus.PENDING.value, []))
+
+    preparing_count = len(orders_by_status.get(OrderStatus.PREPARING.value, []))
+
+    ready_count = len(orders_by_status.get(OrderStatus.READY.value, []))
+
+     
+
+    return {
+
+      "venue_id": venue_id,
+
+      "timestamp": datetime.utcnow().isoformat(),
+
+      "summary": {
+
+        "total_active_orders": total_active,
+
+        "pending_orders": pending_count,
+
+        "preparing_orders": preparing_count,
+
+        "ready_orders": ready_count
+
+      },
+
+      "orders_by_status": orders_by_status
+
+    }
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting live order status: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get live order status"
+
+    )
+
+
+
 
 
 # =============================================================================
+
 # CUSTOMER ORDER ENDPOINTS
+
 # =============================================================================
+
+
 
 @router.get("/customers/{customer_id}/orders", 
-            response_model=List[OrderResponseDTO],
-            summary="Get customer orders",
-            description="Get order history for a customer")
+
+      response_model=List[OrderResponseDTO],
+
+      summary="Get customer orders",
+
+      description="Get order history for a customer")
+
 async def get_customer_orders(
-    customer_id: str,
-    limit: Optional[int] = Query(20, ge=1, le=100, description="Maximum number of orders"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  customer_id: str,
+
+  limit: Optional[int] = Query(20, ge=1, le=100, description="Maximum number of orders"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get order history for a customer"""
-    try:
-        repo = get_repository_manager().get_repository('order')
-        
-        # Get customer orders
-        orders_data = await repo.query([('customer_id', '==', customer_id)], limit=limit)
-        
-        # Filter orders user can access
-        accessible_orders = []
-        for order in orders_data:
-            try:
-                await orders_endpoint._validate_access_permissions(order, current_user)
-                accessible_orders.append(order)
-            except HTTPException:
-                continue  # Skip orders user can't access
-        
-        orders = [OrderResponseDTO(**order) for order in accessible_orders]
-        
-        logger.info(f"Retrieved {len(orders)} orders for customer: {customer_id}")
-        return orders
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting customer orders: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get customer orders"
-        )
+
+  """Get order history for a customer"""
+
+  try:
+
+    repo = get_repository_manager().get_repository('order')
+
+     
+
+    # Get customer orders
+
+    orders_data = await repo.query([('customer_id', '==', customer_id)], limit=limit)
+
+     
+
+    # Filter orders user can access
+
+    accessible_orders = []
+
+    for order in orders_data:
+
+      try:
+
+        await orders_endpoint._validate_access_permissions(order, current_user)
+
+        accessible_orders.append(order)
+
+      except HTTPException:
+
+        continue # Skip orders user can't access
+
+     
+
+    orders = [OrderResponseDTO(**order) for order in accessible_orders]
+
+     
+
+    logger.info(f"Retrieved {len(orders)} orders for customer: {customer_id}")
+
+    return orders
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting customer orders: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get customer orders"
+
+    )
+
+
+
 
 
 # =============================================================================
+
 # PUBLIC ORDERING ENDPOINTS (Consolidated from public_ordering.py)
+
 # =============================================================================
+
+
 
 @router.get("/public/qr/{qr_code}",
-            response_model=Dict[str, Any],
-            summary="Access Menu via QR Code",
-            description="Get venue menu and information by scanning QR code")
+
+      response_model=Dict[str, Any],
+
+      summary="Access Menu via QR Code",
+
+      description="Get venue menu and information by scanning QR code")
+
 async def access_menu_by_qr(qr_code: str):
     """
     Access venue menu through QR code scan
@@ -812,9 +1298,13 @@ async def access_menu_by_qr(qr_code: str):
 
 
 @router.get("/public/venue/{venue_id}/status",
-            response_model=Dict[str, Any],
-            summary="Check Venue Operating Status",
-            description="Check if venue is currently open for orders")
+
+      response_model=Dict[str, Any],
+
+      summary="Check Venue Operating Status",
+
+      description="Check if venue is currently open for orders")
+
 async def check_venue_status(venue_id: str):
     """
     Check venue operating status
@@ -839,9 +1329,13 @@ async def check_venue_status(venue_id: str):
 
 
 @router.post("/public/validate-order",
-             response_model=Dict[str, Any],
-             summary="Validate Order",
-             description="Validate order before creation - check venue hours, item availability")
+
+       response_model=Dict[str, Any],
+
+       summary="Validate Order",
+
+       description="Validate order before creation - check venue hours, item availability")
+
 async def validate_order(order_data: Dict[str, Any]):
     """
     Validate order before creation
@@ -866,10 +1360,15 @@ async def validate_order(order_data: Dict[str, Any]):
 
 
 @router.post("/public/create-order",
-             response_model=Dict[str, Any],
-             status_code=status.HTTP_201_CREATED,
-             summary="Create Public Order",
-             description="Create order from public interface (QR scan)")
+
+       response_model=Dict[str, Any],
+
+       status_code=status.HTTP_201_CREATED,
+
+       summary="Create Public Order",
+
+       description="Create order from public interface (QR scan)")
+
 async def create_public_order(order_data: Dict[str, Any]):
     """
     Create order from public interface
@@ -897,170 +1396,337 @@ async def create_public_order(order_data: Dict[str, Any]):
 
 
 @router.get("/public/{order_id}/status",
-            response_model=Dict[str, Any],
-            summary="Track Order Status",
-            description="Track order status using order ID")
+
+      response_model=Dict[str, Any],
+
+      summary="Track Order Status",
+
+      description="Track order status using order ID")
+
 async def track_order_status(order_id: str):
-    """
-    Track order status for customers
-    """
-    try:
-        order_repo = get_repository_manager().get_repository('order')
-        
-        order = await order_repo.get_by_id(order_id)
-        if not order:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found"
-            )
-        
-        # Return limited order information for tracking
-        order_status = {
-            "order_id": order["id"],
-            "order_number": order.get("order_number"),
-            "status": order.get("status"),
-            "estimated_preparation_time": order.get("estimated_preparation_time"),
-            "estimated_ready_time": order.get("estimated_ready_time"),
-            "actual_ready_time": order.get("actual_ready_time"),
-            "total_amount": order.get("total_amount"),
-            "payment_status": order.get("payment_status"),
-            "created_at": order.get("created_at"),
-            "venue_name": None  # Will be populated below
-        }
-        
-        # Get venue name
-        venue_id = order.get("venue_id")
-        if venue_id:
-            venue_repo = get_repository_manager().get_repository('venue')
-            venue = await venue_repo.get_by_id(venue_id)
-            if venue:
-                order_status["venue_name"] = venue.get("name")
-        
-        return {
-            "success": True,
-            "data": order_status
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Order tracking error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to track order"
-        )
+
+  """
+
+  Track order status for customers
+
+  """
+
+  try:
+
+    order_repo = get_repository_manager().get_repository('order')
+
+     
+
+    order = await order_repo.get_by_id(order_id)
+
+    if not order:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Order not found"
+
+      )
+
+     
+
+    # Return limited order information for tracking
+
+    order_status = {
+
+      "order_id": order["id"],
+
+      "order_number": order.get("order_number"),
+
+      "status": order.get("status"),
+
+      "estimated_preparation_time": order.get("estimated_preparation_time"),
+
+      "estimated_ready_time": order.get("estimated_ready_time"),
+
+      "actual_ready_time": order.get("actual_ready_time"),
+
+      "total_amount": order.get("total_amount"),
+
+      "payment_status": order.get("payment_status"),
+
+      "created_at": order.get("created_at"),
+
+      "venue_name": None # Will be populated below
+
+    }
+
+     
+
+    # Get venue name
+
+    venue_id = order.get("venue_id")
+
+    if venue_id:
+
+      venue_repo = get_repository_manager().get_repository('venue')
+
+      venue = await venue_repo.get_by_id(venue_id)
+
+      if venue:
+
+        order_status["venue_name"] = venue.get("name")
+
+     
+
+    return {
+
+      "success": True,
+
+      "data": order_status
+
+    }
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Order tracking error: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to track order"
+
+    )
+
+
+
 
 
 @router.get("/public/{order_id}/receipt",
-            response_model=Dict[str, Any],
-            summary="Get Order Receipt",
-            description="Get detailed order receipt")
+
+      response_model=Dict[str, Any],
+
+      summary="Get Order Receipt",
+
+      description="Get detailed order receipt")
+
 async def get_order_receipt(order_id: str):
-    """
-    Get order receipt with full details
-    """
-    try:
-        order_repo = get_repository_manager().get_repository('order')
-        venue_repo = get_repository_manager().get_repository('venue')
-        
-        order = await order_repo.get_by_id(order_id)
-        if not order:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found"
-            )
-        
-        # Get venue information
-        venue = await venue_repo.get_by_id(order["venue_id"])
-        
-        receipt = {
-            "order_id": order["id"],
-            "order_number": order.get("order_number"),
-            "venue": {
-                "name": venue.get("name") if venue else "Unknown",
-                "address": venue.get("location", {}).get("address") if venue else "",
-                "phone": venue.get("phone") if venue else ""
-            },
-            "items": order.get("items", []),
-            "subtotal": order.get("subtotal", 0.0),
-            "tax_amount": order.get("tax_amount", 0.0),
-            "total_amount": order.get("total_amount", 0.0),
-            "payment_status": order.get("payment_status"),
-            "order_date": order.get("created_at"),
-            "table_number": None
-        }
-        
-        # Get table number if available
-        table_id = order.get("table_id")
-        if table_id:
-            table_repo = get_repository_manager().get_repository('table')
-            table = await table_repo.get_by_id(table_id)
-            if table:
-                receipt["table_number"] = table.get("table_number")
-        
-        return {
-            "success": True,
-            "data": receipt
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Order receipt error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get order receipt"
-        )
+
+  """
+
+  Get order receipt with full details
+
+  """
+
+  try:
+
+    order_repo = get_repository_manager().get_repository('order')
+
+    venue_repo = get_repository_manager().get_repository('venue')
+
+     
+
+    order = await order_repo.get_by_id(order_id)
+
+    if not order:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Order not found"
+
+      )
+
+     
+
+    # Get venue information
+
+    venue = await venue_repo.get_by_id(order["venue_id"])
+
+     
+
+    receipt = {
+
+      "order_id": order["id"],
+
+      "order_number": order.get("order_number"),
+
+      "venue": {
+
+        "name": venue.get("name") if venue else "Unknown",
+
+        "address": venue.get("location", {}).get("address") if venue else "",
+
+        "phone": venue.get("phone") if venue else ""
+
+      },
+
+      "items": order.get("items", []),
+
+      "subtotal": order.get("subtotal", 0.0),
+
+      "tax_amount": order.get("tax_amount", 0.0),
+
+      "total_amount": order.get("total_amount", 0.0),
+
+      "payment_status": order.get("payment_status"),
+
+      "order_date": order.get("created_at"),
+
+      "table_number": None
+
+    }
+
+     
+
+    # Get table number if available
+
+    table_id = order.get("table_id")
+
+    if table_id:
+
+      table_repo = get_repository_manager().get_repository('table')
+
+      table = await table_repo.get_by_id(table_id)
+
+      if table:
+
+        receipt["table_number"] = table.get("table_number")
+
+     
+
+    return {
+
+      "success": True,
+
+      "data": receipt
+
+    }
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Order receipt error: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get order receipt"
+
+    )
+
+
+
 
 
 @router.post("/public/{order_id}/feedback",
-             response_model=Dict[str, Any],
-             summary="Submit Order Feedback",
-             description="Submit feedback and rating for completed order")
+
+       response_model=Dict[str, Any],
+
+       summary="Submit Order Feedback",
+
+       description="Submit feedback and rating for completed order")
+
 async def submit_order_feedback(
-    order_id: str,
-    rating: int = Query(..., ge=1, le=5, description="Rating from 1 to 5"),
-    feedback: Optional[str] = Query(None, max_length=1000, description="Optional feedback text")
+
+  order_id: str,
+
+  rating: int = Query(..., ge=1, le=5, description="Rating from 1 to 5"),
+
+  feedback: Optional[str] = Query(None, max_length=1000, description="Optional feedback text")
+
 ):
-    """
-    Submit feedback for completed order
-    """
-    try:
-        order_repo = get_repository_manager().get_repository('order')
-        
-        order = await order_repo.get_by_id(order_id)
-        if not order:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Order not found"
-            )
-        
-        # Check if order is completed
-        if order.get("status") not in ["served", "delivered"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Can only provide feedback for completed orders"
-            )
-        
-        # Update order with feedback
-        await order_repo.update(order_id, {
-            "customer_rating": rating,
-            "customer_feedback": feedback,
-            "feedback_date": datetime.utcnow()
-        })
-        
-        logger.info(f"Feedback submitted for order: {order_id} - rating: {rating}")
-        
-        return {
-            "success": True,
-            "message": "Thank you for your feedback!"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Feedback submission error: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to submit feedback"
-        )
+
+  """
+
+  Submit feedback for completed order
+
+  """
+
+  try:
+
+    order_repo = get_repository_manager().get_repository('order')
+
+     
+
+    order = await order_repo.get_by_id(order_id)
+
+    if not order:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Order not found"
+
+      )
+
+     
+
+    # Check if order is completed
+
+    if order.get("status") not in ["served", "delivered"]:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_400_BAD_REQUEST,
+
+        detail="Can only provide feedback for completed orders"
+
+      )
+
+     
+
+    # Update order with feedback
+
+    await order_repo.update(order_id, {
+
+      "customer_rating": rating,
+
+      "customer_feedback": feedback,
+
+      "feedback_date": datetime.utcnow()
+
+    })
+
+     
+
+    logger.info(f"Feedback submitted for order: {order_id} - rating: {rating}")
+
+     
+
+    return {
+
+      "success": True,
+
+      "message": "Thank you for your feedback!"
+
+    }
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Feedback submission error: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to submit feedback"
+
+    )

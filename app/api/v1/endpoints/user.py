@@ -288,7 +288,7 @@ async def update_user_profile(
 # USER MANAGEMENT ENDPOINTS (Admin)
 # =============================================================================
 
-@router.get("", 
+@router.get("/", 
             response_model=PaginatedResponseDTO,
             summary="Get users",
             description="Get paginated list of users (open access)")
@@ -392,7 +392,7 @@ async def get_users(
         )
 
 
-@router.post("", 
+@router.post("/", 
              response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create user",
