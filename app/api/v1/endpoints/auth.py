@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 
 
-from  app.models.schemas import User
+from app.models.schemas import User
 
 from app.models.dto import (
 
@@ -29,13 +29,6 @@ from app.services.validation_service import get_validation_service
 from app.core.dependency_injection import get_auth_service
 
 from app.core.security import get_current_user, get_current_user_id
-from app.core.generic_utils import (
-    validate_resource_ownership, handle_endpoint_errors, safe_get_resource,
-    create_success_response, validate_unique_field
-)
-from app.core.config import settings
-from app.core.logging_config import get_logger
-from app.core.user_utils import convert_user_to_response_dto
 
 from app.core.generic_utils import (
 
@@ -249,7 +242,7 @@ async def register_workspace(registration_data: WorkspaceRegistrationDTO):
 
       "description": registration_data.venue_description,
 
-      "location": registration_data.venue_location.dict(),
+      "location": registration_data.venue_location.model_dump(),
 
       "phone": venue_phone,
 
@@ -497,7 +490,7 @@ async def login_user(login_data: UserLoginDTO):
 
   try:
 
-    from  app.database.firestore import get_user_repo
+    from app.database.firestore import get_user_repo
 
     from app.core.security import create_access_token
 
@@ -757,7 +750,7 @@ async def update_current_user(
 
     # Convert to dict and remove None values
 
-    update_data = user_update.dict(exclude_unset=True)
+    update_data = user_update.model_dump(exclude_unset=True)
 
      
 
@@ -1169,7 +1162,7 @@ async def get_user_permissions(current_user: Dict[str, Any] = Depends(get_curren
 
   try:
 
-    from  app.services.role_permission_service import role_permission_service
+    from app.services.role_permission_service import role_permission_service
 
     from app.database.firestore import get_role_repo, get_permission_repo
 
@@ -1721,7 +1714,7 @@ async def activate_venue(
 
   try:
 
-    from  app.database.firestore import get_venue_repo
+    from app.database.firestore import get_venue_repo
 
     from app.core.security import _get_user_role
 
@@ -2185,7 +2178,7 @@ async def check_auth_config():
 
   try:
 
-    from  app.core.config import settings
+    from app.core.config import settings
 
      
 
