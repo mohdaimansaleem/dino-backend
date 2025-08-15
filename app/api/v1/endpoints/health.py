@@ -1,15 +1,14 @@
 """
 Health Check API Endpoints
-Simple endpoints to test API functionality
+Consolidated health check functionality
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from typing import Dict, Any
 from datetime import datetime
 import time
 
 from app.models.dto import ApiResponse
 from app.core.auth_dependencies import get_auth_status, get_conditional_current_user
-from fastapi import Depends
 
 router = APIRouter()
 
@@ -29,7 +28,7 @@ async def ping():
 
 @router.get("/health", response_model=ApiResponse)
 async def health_check():
-    """Basic health check"""
+    """Comprehensive health check"""
     start_time = time.time()
     
     health_data = {
@@ -38,7 +37,8 @@ async def health_check():
         "response_time_ms": 0,
         "services": {
             "api": True,
-            "database": False
+            "database": False,
+            "auth": False
         }
     }
     
@@ -46,14 +46,20 @@ async def health_check():
     try:
         from app.database.firestore import get_user_repo
         user_repo = get_user_repo()
-        
-        # Simple database test - just check if we can connect
         await user_repo.exists("test-connection")
         health_data["services"]["database"] = True
-        
     except Exception as e:
         health_data["services"]["database"] = False
         health_data["database_error"] = str(e)
+    
+    # Test auth system
+    try:
+        auth_config = get_auth_status()
+        health_data["services"]["auth"] = True
+        health_data["auth_config"] = auth_config
+    except Exception as e:
+        health_data["services"]["auth"] = False
+        health_data["auth_error"] = str(e)
     
     health_data["response_time_ms"] = round((time.time() - start_time) * 1000, 2)
     
@@ -62,57 +68,6 @@ async def health_check():
         message="Health check completed",
         data=health_data
     )
-
-
-@router.get("/test-auth", response_model=ApiResponse)
-async def test_auth():
-    """Test authentication system without actual login"""
-    try:
-        from app.database.firestore import get_user_repo, get_role_repo
-        
-        user_repo = get_user_repo()
-        role_repo = get_role_repo()
-        
-        # Test basic database operations
-        test_results = {
-            "user_repo_available": False,
-            "role_repo_available": False,
-            "can_query_users": False,
-            "can_query_roles": False
-        }
-        
-        # Test user repository
-        try:
-            test_results["user_repo_available"] = True
-            # Try a simple query
-            users = await user_repo.query([("is_active", "==", True)], limit=1)
-            test_results["can_query_users"] = True
-            test_results["sample_users_found"] = len(users)
-        except Exception as e:
-            test_results["user_query_error"] = str(e)
-        
-        # Test role repository
-        try:
-            test_results["role_repo_available"] = True
-            # Try a simple query
-            roles = await role_repo.get_all()
-            test_results["can_query_roles"] = True
-            test_results["roles_found"] = len(roles)
-        except Exception as e:
-            test_results["role_query_error"] = str(e)
-        
-        return ApiResponse(
-            success=True,
-            message="Auth system test completed",
-            data=test_results
-        )
-        
-    except Exception as e:
-        return ApiResponse(
-            success=False,
-            message=f"Auth system test failed: {str(e)}",
-            data={"error": str(e)}
-        )
 
 
 @router.get("/auth-status", response_model=ApiResponse)
@@ -135,7 +90,7 @@ async def auth_status():
         )
 
 
-@router.get("/test-conditional-auth", response_model=ApiResponse)
+@router.get("/test-auth", response_model=ApiResponse)
 async def test_conditional_auth(current_user: Dict[str, Any] = Depends(get_conditional_current_user)):
     """Test conditional authentication (works with both JWT and development mode)"""
     try:
@@ -154,7 +109,7 @@ async def test_conditional_auth(current_user: Dict[str, Any] = Depends(get_condi
         
         return ApiResponse(
             success=True,
-            message="Conditional authentication test successful",
+            message="Authentication test successful",
             data={
                 "user": user_info,
                 "auth_config": auth_config,
@@ -165,38 +120,7 @@ async def test_conditional_auth(current_user: Dict[str, Any] = Depends(get_condi
     except Exception as e:
         return ApiResponse(
             success=False,
-            message=f"Conditional auth test failed: {str(e)}",
-            data={"error": str(e)}
-        )
-
-
-@router.post("/test-login", response_model=ApiResponse)
-async def test_login_process():
-    """Test the login process without credentials"""
-    try:
-        from app.services.auth_service import auth_service
-        
-        # Test if auth service is available
-        test_results = {
-            "auth_service_available": True,
-            "can_create_service": True,
-            "service_methods": []
-        }
-        
-        # Check available methods
-        methods = [method for method in dir(auth_service) if not method.startswith('_')]
-        test_results["service_methods"] = methods[:10]  # First 10 methods
-        
-        return ApiResponse(
-            success=True,
-            message="Login process test completed",
-            data=test_results
-        )
-        
-    except Exception as e:
-        return ApiResponse(
-            success=False,
-            message=f"Login process test failed: {str(e)}",
+            message=f"Authentication test failed: {str(e)}",
             data={"error": str(e)}
         )
 
@@ -206,13 +130,9 @@ async def security_status():
     """Get security configuration status and recommendations"""
     try:
         from app.core.config import validate_configuration, settings
-        from app.core.security_middleware import get_security_middleware_config
         
         # Validate configuration
         config_validation = validate_configuration()
-        
-        # Get security middleware status
-        middleware_config = get_security_middleware_config()
         
         # Security recommendations
         recommendations = []
@@ -240,7 +160,6 @@ async def security_status():
         security_status_data = {
             "environment": settings.ENVIRONMENT,
             "jwt_auth_enabled": settings.is_jwt_auth_enabled,
-            "security_middleware": middleware_config,
             "configuration_valid": config_validation["valid"],
             "warnings": warnings + config_validation.get("warnings", []),
             "errors": config_validation.get("errors", []),
@@ -250,8 +169,7 @@ async def security_status():
                 "jwt_security": "Enhanced with audience/issuer validation",
                 "rate_limiting": "IP-based with auth endpoint protection",
                 "security_headers": "Comprehensive security headers",
-                "request_validation": "Input sanitization and size limits",
-                "development_mode_protection": "Warnings and logging"
+                "request_validation": "Input sanitization and size limits"
             }
         }
         

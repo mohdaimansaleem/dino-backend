@@ -5,7 +5,7 @@ Production-ready implementation for Google Cloud Run
 from google.cloud import firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
 from typing import Dict, List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 from app.core.config import get_firestore_client
@@ -56,15 +56,15 @@ class FirestoreRepository(EnhancedLoggerMixin):
         prepared_data = {}
         for key, value in data.items():
             if isinstance(value, date) and not isinstance(value, datetime):
-                # Convert date to datetime at midnight
-                prepared_data[key] = datetime.combine(value, datetime.min.time())
+                # Convert date to datetime at midnight (timezone-aware)
+                prepared_data[key] = datetime.combine(value, datetime.min.time()).replace(tzinfo=timezone.utc)
             elif isinstance(value, dict):
                 # Recursively handle nested dictionaries
                 prepared_data[key] = self._prepare_data_for_firestore(value)
             elif isinstance(value, list):
                 # Handle lists that might contain date objects
                 prepared_data[key] = [
-                    datetime.combine(item, datetime.min.time()) if isinstance(item, date) and not isinstance(item, datetime)
+                    datetime.combine(item, datetime.min.time()).replace(tzinfo=timezone.utc) if isinstance(item, date) and not isinstance(item, datetime)
                     else self._prepare_data_for_firestore(item) if isinstance(item, dict)
                     else item
                     for item in value
@@ -88,9 +88,9 @@ class FirestoreRepository(EnhancedLoggerMixin):
             # Convert date objects to datetime for Firestore compatibility
             data = self._prepare_data_for_firestore(data)
             
-            # Add timestamps
-            data['created_at'] = datetime.utcnow()
-            data['updated_at'] = datetime.utcnow()
+            # Add timestamps (timezone-aware)
+            data['created_at'] = datetime.now(timezone.utc)
+            data['updated_at'] = datetime.now(timezone.utc)
             
             if doc_id:
                 # Ensure the id field matches the document ID
@@ -243,8 +243,8 @@ class FirestoreRepository(EnhancedLoggerMixin):
                 self.logger.warning(f"Attempted to change document ID from {doc_id} to {data['id']}. Ignoring id field.")
             data['id'] = doc_id
             
-            # Add update timestamp
-            data['updated_at'] = datetime.utcnow()
+            # Add update timestamp (timezone-aware)
+            data['updated_at'] = datetime.now(timezone.utc)
             
             doc_ref = self.collection.document(doc_id)
             doc_ref.update(data)
@@ -349,12 +349,22 @@ class FirestoreRepository(EnhancedLoggerMixin):
                              limit=limit)
             return results
         except Exception as e:
-            self.log_error(e, "query_documents", 
-                          collection=self.collection_name, 
-                          filters=filters, 
-                          order_by=order_by, 
-                          limit=limit)
-            raise
+            # Check if it's an operator error and provide helpful message
+            error_msg = str(e).lower()
+            if "operator string" in error_msg and "invalid" in error_msg:
+                self.log_error(f"Invalid Firestore operator in query: {e}", "query_documents", 
+                              collection=self.collection_name, 
+                              filters=filters, 
+                              order_by=order_by, 
+                              limit=limit)
+                raise Exception(f"Invalid Firestore query operator. Check filter operators: {filters}")
+            else:
+                self.log_error(e, "query_documents", 
+                              collection=self.collection_name, 
+                              filters=filters, 
+                              order_by=order_by, 
+                              limit=limit)
+                raise
     
     async def exists(self, doc_id: str) -> bool:
         """Check if document exists"""
@@ -385,7 +395,7 @@ class FirestoreRepository(EnhancedLoggerMixin):
             for doc_id, update_data in updates:
                 # Prepare data for Firestore
                 update_data = self._prepare_data_for_firestore(update_data)
-                update_data['updated_at'] = datetime.utcnow()
+                update_data['updated_at'] = datetime.now(timezone.utc)
                 
                 doc_ref = self.collection.document(doc_id)
                 batch.update(doc_ref, update_data)
@@ -416,8 +426,8 @@ class FirestoreRepository(EnhancedLoggerMixin):
             for data in items_data:
                 # Prepare data for Firestore
                 data = self._prepare_data_for_firestore(data)
-                data['created_at'] = datetime.utcnow()
-                data['updated_at'] = datetime.utcnow()
+                data['created_at'] = datetime.now(timezone.utc)
+                data['updated_at'] = datetime.now(timezone.utc)
                 
                 doc_ref = self.collection.document()
                 data['id'] = doc_ref.id
@@ -460,10 +470,10 @@ class FirestoreRepository(EnhancedLoggerMixin):
                 # Check if id field is missing or doesn't match document ID
                 if 'id' not in data or data['id'] != doc.id:
                     data['id'] = doc.id
-                    data['updated_at'] = datetime.utcnow()
+                    data['updated_at'] = datetime.now(timezone.utc)
                     
                     doc_ref = self.collection.document(doc.id)
-                    batch.update(doc_ref, {'id': doc.id, 'updated_at': data['updated_at']})
+                    batch.update(doc_ref, {'id': doc.id, 'updated_at': datetime.now(timezone.utc)})
                     
                     fixed_count += 1
                     batch_operations += 1

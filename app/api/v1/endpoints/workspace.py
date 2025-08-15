@@ -98,17 +98,8 @@ async def public_debug_workspaces():
     try:
         logger.info("Public debug workspaces called")
         
-        # Check if we're in dev mode
-        import os
-        dev_mode = os.environ.get("DEV_MODE", "false").lower() == "true"
-        
-        if dev_mode:
-            logger.info("Using development mode with mock data")
-            from app.core.dev_mode import get_mock_workspace_repo
-            repo = get_mock_workspace_repo()
-        else:
-            # Get workspace repository
-            repo = get_workspace_repo()
+        # Get workspace repository
+        repo = get_workspace_repo()
         
         # Get all workspaces (for debugging)
         all_workspaces = await repo.get_all()
@@ -116,7 +107,6 @@ async def public_debug_workspaces():
         return {
             "success": True,
             "message": "Public debug workspaces endpoint working",
-            "dev_mode": dev_mode,
             "total_workspaces": len(all_workspaces),
             "workspaces": [
                 {
@@ -150,15 +140,7 @@ class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreateDTO, WorkspaceUp
         )
     
     def get_repository(self) -> WorkspaceRepository:
-        # Check if we're in dev mode
-        import os
-        dev_mode = os.environ.get("DEV_MODE", "false").lower() == "true"
-        
-        if dev_mode:
-            from app.core.dev_mode import get_mock_workspace_repo
-            return get_mock_workspace_repo()
-        else:
-            return get_workspace_repo()
+        return get_workspace_repo()
     
     async def _prepare_create_data(self, 
                                   data: Dict[str, Any], 
@@ -546,13 +528,13 @@ async def update_workspace(
 @router.delete("/{workspace_id}", 
                response_model=ApiResponseDTO,
                summary="Delete workspace",
-               description="Deactivate workspace (soft delete)")
+               description="Delete workspace (hard delete)")
 async def delete_workspace(
     workspace_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Delete workspace (soft delete by deactivating)"""
-    return await workspaces_endpoint.delete_item(workspace_id, current_user, soft_delete=True)
+    """Delete workspace (hard delete - permanently removes workspace)"""
+    return await workspaces_endpoint.delete_item(workspace_id, current_user, soft_delete=False)
 
 
 @router.post("/{workspace_id}/activate", 

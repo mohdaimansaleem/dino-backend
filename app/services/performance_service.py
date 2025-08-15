@@ -4,7 +4,7 @@ Provides caching, query optimization, and performance monitoring
 """
 from typing import Dict, Any, List, Optional, Callable
 from functools import wraps, lru_cache
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import time
 import json
@@ -37,7 +37,7 @@ class PerformanceService:
         if cache_key not in self._query_cache:
             return None
         
-        if datetime.utcnow() > self._cache_ttl.get(cache_key, datetime.min):
+        if datetime.utcnow() > self._cache_ttl.get(cache_key, datetime.min.replace(tzinfo=timezone.utc)):
             # Cache expired
             self._query_cache.pop(cache_key, None)
             self._cache_ttl.pop(cache_key, None)
@@ -282,7 +282,7 @@ class PerformanceService:
                 'total_entries': len(self._query_cache),
                 'valid_entries': sum(
                     1 for key in self._query_cache.keys() 
-                    if datetime.utcnow() <= self._cache_ttl.get(key, datetime.min)
+                    if datetime.utcnow() <= self._cache_ttl.get(key, datetime.min.replace(tzinfo=timezone.utc))
                 )
             },
             'slow_query_threshold': self._slow_query_threshold

@@ -14,10 +14,7 @@ from app.models.dto import (
 from app.services.validation_service import get_validation_service
 from app.core.dependency_injection import get_auth_service
 from app.core.security import get_current_user, get_current_user_id
-from app.core.generic_utils import (
-    validate_resource_ownership, handle_endpoint_errors, safe_get_resource,
-    create_success_response, validate_unique_field
-)
+from app.core.common_utils import create_success_response
 from app.core.config import settings
 from app.core.logging_config import get_logger
 from app.core.user_utils import convert_user_to_response_dto
@@ -120,7 +117,7 @@ async def register_workspace(registration_data: WorkspaceRegistrationDTO):
             "id": venue_id,
             "name": registration_data.venue_name,
             "description": registration_data.venue_description,
-            "location": registration_data.venue_location.dict(),
+            "location": registration_data.venue_location.model_dump(),
             "phone": venue_phone,
             "email": registration_data.venue_email or registration_data.owner_email,
             "price_range": registration_data.price_range.value,
@@ -246,7 +243,7 @@ async def login_user(login_data: UserLoginDTO):
     try:
         from app.database.firestore import get_user_repo
         from app.core.security import create_access_token
-        from app.core.password_security import login_tracker
+        from app.core.unified_password_security import login_tracker
         from app.core.unified_password_security import password_handler
         
         logger.info(f"Login attempt for email: {login_data.email}")
@@ -374,7 +371,7 @@ async def update_current_user(
     """Update current user information"""
     try:
         # Convert to dict and remove None values
-        update_data = user_update.dict(exclude_unset=True)
+        update_data = user_update.model_dump(exclude_unset=True)
         
         if not update_data:
             raise HTTPException(
@@ -404,7 +401,7 @@ async def change_password(
 ):
     """Change user password with enhanced security"""
     try:
-        from app.core.password_security import login_tracker
+        from app.core.unified_password_security import login_tracker
         from app.database.firestore import get_user_repo
         from app.core.unified_password_security import password_handler
         
@@ -959,7 +956,7 @@ async def login_with_hashed_password(login_data: ClientHashedLoginRequest):
         from app.database.firestore import get_user_repo
         from app.core.unified_password_security import FIXED_CLIENT_SALT
         from app.core.security import create_access_token
-        from app.core.password_security import login_tracker
+        from app.core.unified_password_security import login_tracker
         
         logger.info(f"Hashed login attempt for email: {login_data.email}")
         

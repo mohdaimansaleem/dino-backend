@@ -279,10 +279,6 @@ perm_repo = PermissionRepository()
             response_model=PaginatedResponse,
             summary="Get permissions",
             description="Get paginated list of permissions with filtering")
-@router.get("", 
-            response_model=PaginatedResponse,
-            summary="Get permissions",
-            description="Get paginated list of permissions with filtering")
 async def get_permissions(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(10, ge=1, le=100, description="Items per page"),
@@ -344,15 +340,10 @@ async def get_permissions(
              response_model=ApiResponse,
              status_code=status.HTTP_201_CREATED,
              summary="Create permission",
-             description="Create a new permission (NO AUTH - TESTING ONLY)")
-@router.post("", 
-             response_model=ApiResponse,
-             status_code=status.HTTP_201_CREATED,
-             summary="Create permission",
-             description="Create a new permission (NO AUTH - TESTING ONLY)")
+             description="Create a new permission")
 async def create_permission(
-    permission_data: PermissionCreateDTO
-    # current_user: Dict[str, Any] = Depends(get_current_admin_user)  # REMOVED FOR TESTING
+    permission_data: PermissionCreateDTO,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Create a new permission"""
     try:
@@ -378,7 +369,7 @@ async def create_permission(
             roles_count=0
         )
         
-        logger.info(f"Permission created: {permission_data.name} by system_test")
+        logger.info(f"Permission created: {permission_data.name} by {current_user['id']}")
         return ApiResponse(
             success=True,
             message="Permission created successfully",
@@ -399,7 +390,8 @@ async def create_permission(
             summary="Get permission by ID",
             description="Get specific permission by ID")
 async def get_permission(
-    permission_id: str
+    permission_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get permission by ID"""
     try:

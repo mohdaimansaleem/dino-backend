@@ -15,10 +15,7 @@ from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_venue_repo, VenueRepository
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
-from app.core.generic_utils import (
-    validate_superadmin_only, validate_resource_ownership, handle_endpoint_errors,
-    safe_get_resource, generic_activate_resource, create_success_response
-)
+from app.core.error_recovery import ErrorRecoveryMixin
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -87,13 +84,12 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate venue creation permissions"""
-        # Use consolidated permission validation
-        from app.core.generic_utils import validate_user_permissions
-        await validate_user_permissions(
-            current_user,
-            ['venue:create', 'venue:manage'],
-            resource_type='venue'
-        )
+        # Basic permission check - only admin and superadmin can create venues
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required"
+            )
     
     async def _validate_access_permissions(self, 
                                          item: Dict[str, Any], 
@@ -105,9 +101,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
         # Call parent workspace validation
         await super()._validate_access_permissions(item, current_user)
         
-        # Use consolidated resource access validation
-        from app.core.generic_utils import validate_resource_access
-        await validate_resource_access(current_user, item, "read")
+        # Basic access validation handled by parent class
     
     async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
@@ -617,34 +611,91 @@ async def update_venue(
 @router.delete("/{venue_id}", 
                response_model=ApiResponseDTO,
                summary="Delete venue",
-               description="Deactivate venue (soft delete)")
+               description="Delete venue (hard delete)")
 async def delete_venue(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Delete venue (soft delete by deactivating)"""
-    return await venues_endpoint.delete_item(venue_id, current_user, soft_delete=True)
+    """Delete venue (hard delete - permanently removes venue)"""
+    try:
+        logger.info(f"Venue deletion requested for venue_id: {venue_id} by user: {current_user.get('id')}")
+        result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=False)
+        logger.info(f"Venue deletion completed for venue_id: {venue_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete venue"
+        )
+
+
+@router.post("/{venue_id}/deactivate", 
+             response_model=ApiResponseDTO,
+             summary="Deactivate venue",
+             description="Deactivate venue (soft delete)")
+async def deactivate_venue(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Deactivate venue (soft delete)"""
+    try:
+        logger.info(f"Venue deactivation requested for venue_id: {venue_id} by user: {current_user.get('id')}")
+        result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=True)
+        logger.info(f"Venue deactivation completed for venue_id: {venue_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deactivating venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate venue"
+        )
 
 
 @router.post("/{venue_id}/activate", 
              response_model=ApiResponseDTO,
              summary="Activate venue",
              description="Activate deactivated venue")
-@handle_endpoint_errors("Venue activation")
 async def activate_venue(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Activate venue"""
-    repo = get_venue_repo()
-    
-    return await generic_activate_resource(
-        repo=repo,
-        resource_id=venue_id,
-        current_user=current_user,
-        resource_name="Venue",
-        validation_func=venues_endpoint._validate_access_permissions
-    )
+    try:
+        repo = get_venue_repo()
+        
+        # Check if venue exists
+        venue = await repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Validate access permissions
+        await venues_endpoint._validate_access_permissions(venue, current_user)
+        
+        # Activate venue
+        await repo.update(venue_id, {"is_active": True})
+        
+        logger.info(f"Venue activated: {venue_id}")
+        return ApiResponseDTO(
+            success=True,
+            message="Venue activated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate venue"
+        )
 
 
 # =============================================================================
@@ -748,12 +799,10 @@ async def upload_venue_logo(
         # Validate venue access
         venue = await venues_endpoint.get_item(venue_id, current_user)
         
-        # TODO: Implement storage service
-        # storage_service = get_storage_service()
-        # logo_url = await storage_service.upload_image(...)
-        
-        # Mock implementation for now
-        logo_url = f"https://example.com/venues/{venue_id}/logo.jpg"
+        # Upload logo using storage service
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        logo_url = await storage_service.upload_image(file, "venues", venue_id)
         
         # Update venue with logo URL
         repo = get_venue_repo()

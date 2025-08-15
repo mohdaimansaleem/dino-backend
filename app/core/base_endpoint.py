@@ -99,7 +99,7 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
         """Create a new item"""
         try:
             # Convert to dict
-            data = item_data.dict() if hasattr(item_data, 'dict') else dict(item_data)
+            data = item_data.model_dump() if hasattr(item_data, 'model_dump') else dict(item_data)
             
             # Validate permissions
             await self._validate_create_permissions(data, current_user)
@@ -113,11 +113,10 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             
             logger.info(f"{self.collection_name.title()} created: {created_item.get('id')}")
             
-            from app.models.dto import ApiResponse
-            return ApiResponse(
-                success=True,
-                message=f"{self.collection_name.title()} created successfully",
-                data=created_item  # Return raw data instead of validating against model
+            from app.core.common_utils import create_success_response
+            return create_success_response(
+                f"{self.collection_name.title()} created successfully",
+                created_item
             )
             
         except HTTPException:
@@ -177,18 +176,17 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             await self._validate_update_permissions(item, current_user)
             
             # Convert to dict and exclude unset values
-            update_dict = update_data.dict(exclude_unset=True) if hasattr(update_data, 'dict') else dict(update_data)
+            update_dict = update_data.model_dump(exclude_unset=True) if hasattr(update_data, 'model_dump') else dict(update_data)
             
             # Update item
             updated_item = await repo.update(item_id, update_dict)
             
             logger.info(f"{self.collection_name.title()} updated: {item_id}")
             
-            from app.models.dto import ApiResponse
-            return ApiResponse(
-                success=True,
-                message=f"{self.collection_name.title()} updated successfully",
-                data=updated_item  # Return raw data instead of validating against model
+            from app.core.common_utils import create_success_response
+            return create_success_response(
+                f"{self.collection_name.title()} updated successfully",
+                updated_item
             )
             
         except HTTPException:
@@ -230,11 +228,8 @@ class BaseEndpoint(Generic[ModelType, CreateSchemaType, UpdateSchemaType], ABC):
             
             logger.info(f"{self.collection_name.title()} {'deactivated' if soft_delete else 'deleted'}: {item_id}")
             
-            from app.models.dto import ApiResponse
-            return ApiResponse(
-                success=True,
-                message=message
-            )
+            from app.core.common_utils import create_success_response
+            return create_success_response(message)
             
         except HTTPException:
             raise

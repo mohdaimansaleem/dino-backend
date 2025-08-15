@@ -66,7 +66,7 @@ class ResponseService:
             headers = self._add_performance_headers(headers, start_time)
         
         # Convert to JSON
-        content = response_data.json()
+        content = response_data.model_dump_json()
         
         # Check if compression is beneficial
         if self._should_compress(content):
@@ -82,7 +82,7 @@ class ResponseService:
             )
         
         return JSONResponse(
-            content=response_data.dict(),
+            content=response_data.model_dump(mode='json'),
             status_code=status_code,
             headers=headers
         )
@@ -129,7 +129,7 @@ class ResponseService:
             headers = self._add_performance_headers(headers, start_time)
         
         # Convert to JSON
-        content = response_data.json()
+        content = response_data.model_dump_json()
         
         # Check if compression is beneficial
         if self._should_compress(content):
@@ -145,7 +145,7 @@ class ResponseService:
             )
         
         return JSONResponse(
-            content=response_data.dict(),
+            content=response_data.model_dump(mode='json'),
             status_code=status.HTTP_200_OK,
             headers=headers
         )
@@ -199,7 +199,7 @@ class ResponseService:
         )
         
         return JSONResponse(
-            content=response_data.dict(),
+            content=response_data.model_dump(mode='json'),
             status_code=status.HTTP_201_CREATED,
             headers=headers
         )
@@ -244,7 +244,7 @@ class ResponseService:
         )
         
         return JSONResponse(
-            content=response_data.dict(),
+            content=response_data.model_dump(mode='json'),
             status_code=status.HTTP_200_OK,
             headers=headers
         )
