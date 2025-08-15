@@ -354,7 +354,7 @@ workspaces_endpoint = WorkspacesEndpoint()
 # WORKSPACE MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("", 
+@router.get("/", 
             response_model=PaginatedResponseDTO,
             summary="Get workspaces (default)",
             description="Get paginated list of workspaces - default endpoint")
@@ -446,7 +446,7 @@ async def debug_workspaces(
             "message": "Debug endpoint failed"
         }
 
-@router.post("", 
+@router.post("/", 
              response_model=ApiResponseDTO,
              status_code=status.HTTP_201_CREATED,
              summary="Create workspace",
