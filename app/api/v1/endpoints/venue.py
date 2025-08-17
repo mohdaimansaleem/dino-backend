@@ -1178,15 +1178,13 @@ async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin
 
 async def get_venue(
 
-  venue_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
+  venue_id: str
 
 ):
 
   """Get venue by ID"""
 
-  return await venues_endpoint.get_item(venue_id, current_user)
+  return await venues_endpoint.get_item(venue_id, current_user=None)
 
 
 
