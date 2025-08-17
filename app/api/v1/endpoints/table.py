@@ -20,7 +20,7 @@ import json
 
 
 
-from  app.models.schemas import Table, TableStatus
+from app.models.schemas import Table, TableStatus
 
 from app.models.dto import (
 
@@ -281,6 +281,28 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
           detail=f"Table number {table_number} already exists in this venue"
 
         )
+
+   
+
+  async def _validate_access_permissions(self, 
+
+                     item: Dict[str, Any], 
+
+                     current_user: Optional[Dict[str, Any]]):
+
+    """Override to allow public access for table information"""
+
+    # Allow public access for table information (QR code scanning)
+
+    if current_user is None:
+
+      return
+
+     
+
+    # For authenticated users, use normal workspace validation
+
+    await super()._validate_access_permissions(item, current_user)
 
    
 
@@ -666,21 +688,21 @@ async def create_table(
 
       response_model=TableResponseDTO,
 
-      summary="Get table by ID",
+      summary="Get table by ID (Public)",
 
-      description="Get specific table by ID")
+      description="Get specific table by ID - Public endpoint for QR code access")
 
 async def get_table(
 
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
+  table_id: str
 
 ):
 
-  """Get table by ID"""
+  """Get table by ID - Public endpoint for QR code scanning"""
 
-  return await tables_endpoint.get_item(table_id, current_user)
+  # Public endpoint - no authentication required for QR code access
+
+  return await tables_endpoint.get_item(table_id, current_user=None)
 
 
 
@@ -1140,19 +1162,17 @@ async def regenerate_table_qr_code(
 
        response_model=Dict[str, Any],
 
-       summary="Verify QR code",
+       summary="Verify QR code (Public)",
 
-       description="Verify and decode table QR code")
+       description="Verify and decode table QR code - Public endpoint")
 
 async def verify_qr_code(
 
-  qr_code: str,
-
-  current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+  qr_code: str
 
 ):
 
-  """Verify QR code and return table information"""
+  """Verify QR code and return table information - Public endpoint"""
 
   try:
 
@@ -1174,7 +1194,7 @@ async def verify_qr_code(
 
      
 
-    # Get table information
+    # Get table information (public access)
 
     table = await tables_endpoint.get_table_by_qr_code(qr_code)
 
@@ -1194,7 +1214,7 @@ async def verify_qr_code(
 
     # Get venue information
 
-    from  app.database.firestore import get_venue_repo
+    from app.database.firestore import get_venue_repo
 
     venue_repo = get_venue_repo()
 
@@ -1261,6 +1281,128 @@ async def verify_qr_code(
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
       detail="Failed to verify QR code"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# PUBLIC TABLE ACCESS ENDPOINTS (for QR codes)
+
+# =============================================================================
+
+
+
+@router.get("/public/{table_id}", 
+
+      response_model=Dict[str, Any],
+
+      summary="Get table info (Public)",
+
+      description="Get table information for public access via QR codes")
+
+async def get_table_public(
+
+  table_id: str
+
+):
+
+  """Get table information for public access (QR code scanning)"""
+
+  try:
+
+    repo = get_table_repo()
+
+    table_data = await repo.get_by_id(table_id)
+
+     
+
+    if not table_data:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Table not found"
+
+      )
+
+     
+
+    # Get venue information
+
+    from app.database.firestore import get_venue_repo
+
+    venue_repo = get_venue_repo()
+
+    venue = await venue_repo.get_by_id(table_data['venue_id'])
+
+     
+
+    if not venue:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Venue not found"
+
+      )
+
+     
+
+    # Return public table information
+
+    return {
+
+      "table": {
+
+        "id": table_data["id"],
+
+        "table_number": table_data["table_number"],
+
+        "capacity": table_data.get("capacity", 4),
+
+        "location": table_data.get("location"),
+
+        "status": table_data.get("table_status", "available"),
+
+        "qr_code": table_data.get("qr_code")
+
+      },
+
+      "venue": {
+
+        "id": venue["id"],
+
+        "name": venue["name"],
+
+        "description": venue.get("description"),
+
+        "is_active": venue.get("is_active", False)
+
+      }
+
+    }
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting public table info: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get table information"
 
     )
 
