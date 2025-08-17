@@ -1,46 +1,38 @@
 """
 
-Enhanced Table Management API Endpoints
+Enhanced Venue Management API Endpoints
 
-Complete CRUD for tables with QR code generation and status management
+Refactored with standardized patterns, workspace isolation, and comprehensive CRUD
 
 """
 
 from typing import List, Dict, Any, Optional
 
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
 
-from datetime import datetime, timezone
-
-import hashlib
-
-import base64
-
-import json
+from datetime import datetime
 
 
 
-from app.models.schemas import Table, TableStatus
+from  app.models.schemas import Venue, VenueOperatingHours, SubscriptionPlan, SubscriptionStatus, VenueStatus
 
 from app.models.dto import (
 
-  TableCreateDTO, TableUpdateDTO, TableResponseDTO, QRCodeDataDTO,
+  VenueCreateDTO, VenueUpdateDTO, VenueResponseDTO, VenueWorkspaceListDTO, 
 
   ApiResponseDTO, PaginatedResponseDTO
 
 )
 
-from pydantic import BaseModel
-
-# Removed base endpoint dependency
-
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 
-from app.database.firestore import get_table_repo, TableRepository
+from app.database.firestore import get_venue_repo, VenueRepository
 
 from app.core.security import get_current_user, get_current_admin_user
 
 from app.core.logging_config import get_logger
+
+from app.core.error_recovery import ErrorRecoveryMixin
 
 
 
@@ -52,9 +44,53 @@ router = APIRouter()
 
 
 
-class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdateDTO]):
+def clean_venue_status(venue_data: Dict[str, Any]) -> Dict[str, Any]:
 
-  """Enhanced Tables endpoint with QR code management and status tracking"""
+  """Clean and normalize venue status field"""
+
+  if 'status' in venue_data:
+
+    status_value = venue_data['status']
+
+    # Handle cases where status might be incorrectly formatted
+
+    if isinstance(status_value, str):
+
+      # Remove any extra quotes that might be present
+
+      cleaned_status = status_value.strip("'\"")
+
+      # Validate against enum values
+
+      valid_statuses = [e.value for e in VenueStatus]
+
+      if cleaned_status in valid_statuses:
+
+        venue_data['status'] = cleaned_status
+
+      else:
+
+        venue_data['status'] = VenueStatus.ACTIVE.value
+
+    else:
+
+      venue_data['status'] = VenueStatus.ACTIVE.value
+
+  else:
+
+    venue_data['status'] = VenueStatus.ACTIVE.value
+
+   
+
+  return venue_data
+
+
+
+
+
+class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdateDTO]):
+
+  """Enhanced Venues endpoint with workspace isolation and comprehensive CRUD"""
 
    
 
@@ -62,13 +98,13 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
     super().__init__(
 
-      model_class=Table,
+      model_class=Venue,
 
-      create_schema=TableCreateDTO,
+      create_schema=VenueCreateDTO,
 
-      update_schema=TableUpdateDTO,
+      update_schema=VenueUpdateDTO,
 
-      collection_name="tables",
+      collection_name="venues",
 
       require_auth=True,
 
@@ -78,9 +114,9 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
    
 
-  def get_repository(self) -> TableRepository:
+  def get_repository(self) -> VenueRepository:
 
-    return get_table_repo()
+    return get_venue_repo()
 
    
 
@@ -90,145 +126,39 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
                  current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
-    """Prepare table data before creation"""
+    """Prepare venue data before creation"""
 
-    # Generate QR code
+    # Set owner and admin
 
-    venue_id = data['venue_id']
+    if current_user:
 
-    table_number = data['table_number']
+      data['owner_id'] = current_user['id']
 
-    qr_code = self._generate_qr_code(venue_id, table_number)
+      data['admin_id'] = current_user['id']
+
+       
+
+      # Set workspace from current user if not provided
+
+      if not data.get('workspace_id'):
+
+        data['workspace_id'] = current_user.get('workspace_id')
 
      
 
-    data['qr_code'] = qr_code
-
-    data['qr_code_url'] = None # Will be set when QR image is generated
-
-    data['table_status'] = TableStatus.AVAILABLE.value
+    # Set default values
 
     data['is_active'] = True
+
+    data['is_verified'] = False
+
+    data['rating'] = 0.0
+
+    data['total_reviews'] = 0
 
      
 
     return data
-
-   
-
-  def _generate_qr_code(self, venue_id: str, table_number: int) -> str:
-
-    """Generate encrypted QR code for table"""
-
-    # Create QR data
-
-    qr_data = {
-
-      "venue_id": venue_id,
-
-      "table_number": table_number,
-
-      "type": "table_access"
-
-    }
-
-     
-
-    # Convert to JSON and encode
-
-    qr_json = json.dumps(qr_data, sort_keys=True)
-
-    qr_bytes = qr_json.encode('utf-8')
-
-     
-
-    # Create hash for verification
-
-    hash_object = hashlib.sha256(qr_bytes)
-
-    qr_hash = hash_object.hexdigest()[:16] # Use first 16 chars
-
-     
-
-    # Encode with base64
-
-    qr_encoded = base64.b64encode(qr_bytes).decode('utf-8')
-
-     
-
-    # Combine encoded data with hash
-
-    return f"{qr_encoded}.{qr_hash}"
-
-   
-
-  def _verify_qr_code(self, qr_code: str) -> Optional[QRCodeDataDTO]:
-
-    """Verify and decode QR code"""
-
-    try:
-
-      # Split encoded data and hash
-
-      parts = qr_code.split('.')
-
-      if len(parts) != 2:
-
-        return None
-
-       
-
-      qr_encoded, qr_hash = parts
-
-       
-
-      # Decode data
-
-      qr_bytes = base64.b64decode(qr_encoded.encode('utf-8'))
-
-       
-
-      # Verify hash
-
-      hash_object = hashlib.sha256(qr_bytes)
-
-      expected_hash = hash_object.hexdigest()[:16]
-
-       
-
-      if qr_hash != expected_hash:
-
-        return None
-
-       
-
-      # Parse JSON
-
-      qr_json = qr_bytes.decode('utf-8')
-
-      qr_data = json.loads(qr_json)
-
-       
-
-      return QRCodeDataDTO(
-
-        venue_id=qr_data['venue_id'],
-
-        table_id=qr_data.get('table_id', ''),
-
-        table_number=qr_data['table_number'],
-
-        encrypted_token=qr_code,
-
-        generated_at=datetime.now(timezone.utc)
-
-      )
-
-       
-
-    except Exception:
-
-      return None
 
    
 
@@ -238,7 +168,9 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
                      current_user: Optional[Dict[str, Any]]):
 
-    """Validate table creation permissions"""
+    """Validate venue creation permissions"""
+
+    # Basic permission check - only admin and superadmin can create venues
 
     if not current_user:
 
@@ -250,38 +182,6 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
       )
 
-     
-
-    # Validate venue access
-
-    venue_id = data.get('venue_id')
-
-    if venue_id:
-
-      await self._validate_venue_access(venue_id, current_user)
-
-     
-
-    # Check for duplicate table number in venue
-
-    table_number = data.get('table_number')
-
-    if venue_id and table_number:
-
-      repo = self.get_repository()
-
-      existing_table = await repo.get_by_table_number(venue_id, table_number)
-
-      if existing_table:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_400_BAD_REQUEST,
-
-          detail=f"Table number {table_number} already exists in this venue"
-
-        )
-
    
 
   async def _validate_access_permissions(self, 
@@ -290,37 +190,643 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
                      current_user: Optional[Dict[str, Any]]):
 
-    """Override to allow public access for table information"""
+    """Validate venue access permissions"""
 
-    # Allow public access for table information (QR code scanning)
+    if not current_user:
 
-    if current_user is None:
-
-      return
+      return # Public access allowed for venue details
 
      
 
-    # For authenticated users, use normal workspace validation
+    # Call parent workspace validation
 
     await super()._validate_access_permissions(item, current_user)
 
+     
+
+    # Basic access validation handled by parent class
+
    
 
-  async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
+  async def _build_query_filters(self, 
 
-    """Validate user has access to the venue"""
+                 filters: Optional[Dict[str, Any]], 
 
-    from app.database.firestore import get_venue_repo
+                 search: Optional[str],
 
-    from app.core.security import _get_user_role
+                 current_user: Optional[Dict[str, Any]]) -> List[tuple]:
+
+    """Build query filters for venue search"""
+
+    query_filters = []
 
      
 
-    venue_repo = get_venue_repo()
+    # Add workspace filter for non-admin users
+
+    if current_user:
+
+      from app.core.security import _get_user_role
+
+      user_role = await _get_user_role(current_user)
+
+      if user_role not in ['admin', 'superadmin']:
+
+        workspace_id = current_user.get('workspace_id')
+
+        if workspace_id:
+
+          query_filters.append(('workspace_id', '==', workspace_id))
 
      
 
-    venue = await venue_repo.get_by_id(venue_id)
+    # Add additional filters
+
+    if filters:
+
+      for field, value in filters.items():
+
+        if value is not None:
+
+          query_filters.append((field, '==', value))
+
+     
+
+    return query_filters
+
+   
+
+  async def get_items(self, 
+
+            page: int = 1, 
+
+            page_size: int = 10,
+
+            search: Optional[str] = None,
+
+            filters: Optional[Dict[str, Any]] = None,
+
+            current_user: Optional[Dict[str, Any]] = None):
+
+    """Get paginated list of venues with proper status handling"""
+
+    try:
+
+      repo = self.get_repository()
+
+       
+
+      # Build query filters
+
+      query_filters = await self._build_query_filters(filters, search, current_user)
+
+       
+
+      # Get all items matching filters
+
+      all_items = await repo.query(query_filters) if query_filters else await repo.get_all()
+
+       
+
+      # Apply text search if provided
+
+      if search:
+
+        search_lower = search.lower()
+
+        # Basic text search - override in subclasses for more sophisticated search
+
+        all_items = [
+
+          item for item in all_items
+
+          if any(search_lower in str(value).lower() for value in item.values() if isinstance(value, str))
+
+        ]
+
+       
+
+      # Filter items based on user permissions
+
+      filtered_items = await self._filter_items_for_user(all_items, current_user)
+
+       
+
+      # Calculate pagination
+
+      total = len(filtered_items)
+
+      start_idx = (page - 1) * page_size
+
+      end_idx = start_idx + page_size
+
+      items_page = filtered_items[start_idx:end_idx]
+
+       
+
+      # Convert to model objects with proper status handling
+
+      items = []
+
+      for item in items_page:
+
+        item = clean_venue_status(item)
+
+        items.append(VenueResponseDTO(**item))
+
+       
+
+      # Calculate pagination metadata
+
+      total_pages = (total + page_size - 1) // page_size
+
+      has_next = page < total_pages
+
+      has_prev = page > 1
+
+       
+
+      from app.models.dto import PaginatedResponse
+
+      return PaginatedResponse(
+
+        success=True,
+
+        data=items,
+
+        total=total,
+
+        page=page,
+
+        page_size=page_size,
+
+        total_pages=total_pages,
+
+        has_next=has_next,
+
+        has_prev=has_prev
+
+      )
+
+       
+
+    except HTTPException:
+
+      raise
+
+    except Exception as e:
+
+      logger.error(f"Error getting venues list: {e}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail="Failed to get venues list"
+
+      )
+
+   
+
+  async def search_venues_by_text(self, 
+
+                 search_term: str,
+
+                 current_user: Optional[Dict[str, Any]] = None) -> List[Venue]:
+
+    """Search venues by name, description, or cuisine"""
+
+    repo = self.get_repository()
+
+     
+
+    # Build base filters
+
+    base_filters = await self._build_query_filters(None, None, current_user)
+
+     
+
+    # Search in multiple fields
+
+    search_fields = ['name', 'description', 'address', 'cuisine_types']
+
+    matching_venues = await repo.search_text(
+
+      search_fields=search_fields,
+
+      search_term=search_term,
+
+      additional_filters=base_filters,
+
+      limit=50
+
+    )
+
+     
+
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in matching_venues:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+    return venues
+
+   
+
+  async def get_venues_by_subscription_status(self, 
+
+                       status: SubscriptionStatus,
+
+                       current_user: Dict[str, Any]) -> List[Venue]:
+
+    """Get venues by subscription status"""
+
+    repo = self.get_repository()
+
+     
+
+    # Build filters
+
+    filters = [('subscription_status', '==', status.value)]
+
+     
+
+    # Add workspace filter for non-admin users
+
+    from  app.core.security import _get_user_role
+
+    user_role = await _get_user_role(current_user)
+
+    if user_role not in ['admin', 'superadmin']:
+
+      workspace_id = current_user.get('workspace_id')
+
+      if workspace_id:
+
+        filters.append(('workspace_id', '==', workspace_id))
+
+     
+
+    venues_data = await repo.query(filters)
+
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in venues_data:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+    return venues
+
+   
+
+  async def get_item(self, 
+
+           item_id: str, 
+
+           current_user: Optional[Dict[str, Any]]):
+
+    """Get venue by ID with proper status handling"""
+
+    try:
+
+      repo = self.get_repository()
+
+      item = await repo.get_by_id(item_id)
+
+       
+
+      if not item:
+
+        raise HTTPException(
+
+          status_code=status.HTTP_404_NOT_FOUND,
+
+          detail="Venue not found"
+
+        )
+
+       
+
+      # Validate access
+
+      await self._validate_access_permissions(item, current_user)
+
+       
+
+      # Clean and ensure status field is properly set
+
+      item = clean_venue_status(item)
+
+       
+
+      return VenueResponseDTO(**item)
+
+       
+
+    except HTTPException:
+
+      raise
+
+    except Exception as e:
+
+      logger.error(f"Error getting venue: {e}")
+
+      raise HTTPException(
+
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+        detail="Failed to get venue"
+
+      )
+
+   
+
+  async def get_venue_analytics(self, 
+
+                venue_id: str,
+
+                current_user: Dict[str, Any]) -> Dict[str, Any]:
+
+    """Get basic analytics for a venue"""
+
+    repo = self.get_repository()
+
+     
+
+    # Validate access
+
+    venue_data = await repo.get_by_id(venue_id)
+
+    if not venue_data:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Venue not found"
+
+      )
+
+     
+
+    await self._validate_access_permissions(venue_data, current_user)
+
+     
+
+    # Get related data counts
+
+    from app.database.firestore import (
+
+      get_menu_item_repo, get_table_repo, get_order_repo, get_customer_repo
+
+    )
+
+     
+
+    menu_repo = get_menu_item_repo()
+
+    table_repo = get_table_repo()
+
+    order_repo = get_order_repo()
+
+    customer_repo = get_customer_repo()
+
+     
+
+    # Count items
+
+    menu_items = await menu_repo.get_by_venue(venue_id)
+
+    tables = await table_repo.get_by_venue(venue_id)
+
+    orders = await order_repo.get_by_venue(venue_id, limit=100) # Recent orders
+
+    customers = await customer_repo.get_by_venue(venue_id)
+
+     
+
+    return {
+
+      "venue_id": venue_id,
+
+      "total_menu_items": len(menu_items),
+
+      "total_tables": len(tables),
+
+      "recent_orders": len(orders),
+
+      "total_customers": len(customers),
+
+      "rating": venue_data.get('rating', 0.0),
+
+      "total_reviews": venue_data.get('total_reviews', 0),
+
+      "subscription_status": venue_data.get('subscription_status'),
+
+      "is_active": venue_data.get('is_active', False)
+
+    }
+
+
+
+
+
+# Initialize endpoint
+
+venues_endpoint = VenuesEndpoint()
+
+
+
+
+
+# =============================================================================
+
+# PUBLIC ENDPOINTS (No Authentication Required)
+
+# =============================================================================
+
+
+
+@router.get("/public", 
+
+      response_model=PaginatedResponseDTO,
+
+      summary="Get public venues",
+
+      description="Get paginated list of active venues (public endpoint)")
+
+async def get_public_venues(
+
+  page: int = Query(1, ge=1, description="Page number"),
+
+  page_size: int = Query(10, ge=1, le=50, description="Items per page"),
+
+  search: Optional[str] = Query(None, description="Search by name or cuisine"),
+
+  cuisine_type: Optional[str] = Query(None, description="Filter by cuisine type"),
+
+  price_range: Optional[str] = Query(None, description="Filter by price range")
+
+):
+
+  """Get public venues (no authentication required)"""
+
+  try:
+
+    repo = get_venue_repo()
+
+     
+
+    # Build filters for public venues
+
+    filters = [('is_active', '==', True)]
+
+     
+
+    if cuisine_type:
+
+      # Note: This is a simplified filter - in practice, you'd need array-contains
+
+      filters.append(('cuisine_types', 'array-contains', cuisine_type))
+
+     
+
+    if price_range:
+
+      filters.append(('price_range', '==', price_range))
+
+     
+
+    # Get filtered venues
+
+    all_venues = await repo.query(filters)
+
+     
+
+    # Apply text search if provided
+
+    if search:
+
+      search_lower = search.lower()
+
+      all_venues = [
+
+        venue for venue in all_venues
+
+        if (search_lower in venue.get('name', '').lower() or
+
+          search_lower in venue.get('description', '').lower() or
+
+          any(search_lower in cuisine.lower() for cuisine in venue.get('cuisine_types', [])))
+
+      ]
+
+     
+
+    # Calculate pagination
+
+    total = len(all_venues)
+
+    start_idx = (page - 1) * page_size
+
+    end_idx = start_idx + page_size
+
+    venues_page = all_venues[start_idx:end_idx]
+
+     
+
+    # Convert to Venue objects - clean and add default status if missing
+
+    venues = []
+
+    for venue in venues_page:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+     
+
+    # Calculate pagination metadata
+
+    total_pages = (total + page_size - 1) // page_size
+
+    has_next = page < total_pages
+
+    has_prev = page > 1
+
+     
+
+    logger.info(f"Public venues retrieved: {len(venues)} of {total}")
+
+     
+
+    return PaginatedResponseDTO(
+
+      success=True,
+
+      data=venues,
+
+      total=total,
+
+      page=page,
+
+      page_size=page_size,
+
+      total_pages=total_pages,
+
+      has_next=has_next,
+
+      has_prev=has_prev
+
+    )
+
+     
+
+  except Exception as e:
+
+    logger.error(f"Error getting public venues: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get venues"
+
+    )
+
+
+
+
+
+@router.get("/public/{venue_id}", 
+
+      response_model=VenueResponseDTO,
+
+      summary="Get public venue details",
+
+      description="Get venue details by ID (public endpoint)")
+
+async def get_public_venue(venue_id: str):
+
+  """Get venue by ID (public endpoint)"""
+
+  try:
+
+    repo = get_venue_repo()
+
+    venue = await repo.get_by_id(venue_id)
+
+     
 
     if not venue:
 
@@ -334,169 +840,53 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
      
 
-    # Get the actual role name from role_id
+    # Only return active venues for public access
 
-    user_role = await _get_user_role(current_user)
-
-     
-
-    # SuperAdmin and Admin have access to all venues
-
-    if user_role in ['superadmin', 'admin']:
-
-      return
-
-     
-
-    # For other roles, check workspace access
-
-    user_workspace_id = current_user.get('workspace_id')
-
-    venue_workspace_id = venue.get('workspace_id')
-
-     
-
-    if user_workspace_id != venue_workspace_id:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_403_FORBIDDEN,
-
-        detail="Access denied: Venue belongs to different workspace"
-
-      )
-
-   
-
-  async def get_table_by_qr_code(self, qr_code: str) -> Optional[Table]:
-
-    """Get table by QR code"""
-
-    repo = self.get_repository()
-
-    table_data = await repo.get_by_qr_code(qr_code)
-
-     
-
-    if table_data:
-
-      return Table(**table_data)
-
-    return None
-
-   
-
-  async def update_table_status(self, 
-
-                table_id: str,
-
-                new_status: TableStatus,
-
-                current_user: Dict[str, Any]) -> bool:
-
-    """Update table status"""
-
-    repo = self.get_repository()
-
-     
-
-    # Validate table exists and user has access
-
-    table_data = await repo.get_by_id(table_id)
-
-    if not table_data:
+    if not venue.get('is_active', False):
 
       raise HTTPException(
 
         status_code=status.HTTP_404_NOT_FOUND,
 
-        detail="Table not found"
+        detail="Venue not found"
 
       )
 
      
 
-    await self._validate_access_permissions(table_data, current_user)
+    # Clean and add default status if missing
+
+    venue = clean_venue_status(venue)
 
      
 
-    # Update status
+    # Debug: Log the actual status value to understand the issue
 
-    await repo.update(table_id, {"table_status": new_status.value})
-
-     
-
-    logger.info(f"Table status updated: {table_id} -> {new_status.value}")
-
-    return True
-
-   
-
-  async def get_venue_table_statistics(self, 
-
-                   venue_id: str,
-
-                   current_user: Dict[str, Any]) -> Dict[str, Any]:
-
-    """Get table statistics for a venue"""
-
-    # Validate venue access
-
-    await self._validate_venue_access(venue_id, current_user)
+    logger.info(f"Venue {venue_id} status value: {repr(venue.get('status'))}")
 
      
 
-    repo = self.get_repository()
+    logger.info(f"Public venue retrieved: {venue_id}")
 
-    tables = await repo.get_by_venue(venue_id)
-
-     
-
-    # Count by status
-
-    status_counts = {}
-
-    for status in TableStatus:
-
-      status_counts[status.value] = 0
+    return VenueResponseDTO(**venue)
 
      
 
-    active_tables = 0
+  except HTTPException:
 
-    for table in tables:
+    raise
 
-      if table.get('is_active', False):
+  except Exception as e:
 
-        active_tables += 1
+    logger.error(f"Error getting public venue {venue_id}: {e}")
 
-        table_status = table.get('table_status', TableStatus.AVAILABLE.value)
+    raise HTTPException(
 
-        status_counts[table_status] += 1
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-     
+      detail="Failed to get venue"
 
-    return {
-
-      "venue_id": venue_id,
-
-      "total_tables": len(tables),
-
-      "active_tables": active_tables,
-
-      "status_breakdown": status_counts,
-
-      "utilization_rate": (status_counts.get('occupied', 0) / active_tables * 100) if active_tables > 0 else 0
-
-    }
-
-
-
-
-
-# Initialize endpoint
-
-tables_endpoint = TablesEndpoint()
+    )
 
 
 
@@ -504,7 +894,139 @@ tables_endpoint = TablesEndpoint()
 
 # =============================================================================
 
-# TABLE MANAGEMENT ENDPOINTS
+# WORKSPACE VENUS API ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.get("/workspace/{workspace_id}/venues", 
+
+      response_model=List[VenueWorkspaceListDTO],
+
+      summary="Get venues by workspace ID",
+
+      description="Get simplified venue list for workspace (Venus API)")
+
+async def get_venues_by_workspace(
+
+  workspace_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
+):
+
+  """Get simplified venue list for workspace (Venus API)"""
+
+  try:
+
+    # Verify workspace access
+
+    from  app.core.security import verify_workspace_access
+
+    await verify_workspace_access(workspace_id, current_user)
+
+     
+
+    repo = get_venue_repo()
+
+    venues_data = await repo.get_by_workspace(workspace_id)
+
+     
+
+    # Convert to simplified venue DTOs with only required data
+
+    venues = []
+
+    for venue in venues_data:
+
+      venue = clean_venue_status(venue)
+
+       
+
+      # Create simplified location info
+
+      location_info = {}
+
+      if venue.get('location'):
+
+        location_info = {
+
+          'city': venue['location'].get('city', ''),
+
+          'state': venue['location'].get('state', ''),
+
+          'country': venue['location'].get('country', ''),
+
+          'address': venue['location'].get('address', '')
+
+        }
+
+       
+
+      # Create simplified venue DTO
+
+      simplified_venue = VenueWorkspaceListDTO(
+
+        id=venue['id'],
+
+        name=venue.get('name', ''),
+
+        description=venue.get('description'),
+
+        location=location_info,
+
+        phone=venue.get('phone'),
+
+        email=venue.get('email'),
+
+        is_active=venue.get('is_active', False),
+
+        is_open=venue.get('is_open', False),
+
+        status=venue.get('status', VenueStatus.ACTIVE),
+
+        subscription_status=venue.get('subscription_status', SubscriptionStatus.ACTIVE),
+
+        created_at=venue.get('created_at', datetime.utcnow()),
+
+        updated_at=venue.get('updated_at', datetime.utcnow())
+
+      )
+
+      venues.append(simplified_venue)
+
+     
+
+    logger.info(f"Retrieved {len(venues)} simplified venues for workspace: {workspace_id}")
+
+    return venues
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting venues for workspace {workspace_id}: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get workspace venues"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# AUTHENTICATED ENDPOINTS
 
 # =============================================================================
 
@@ -514,19 +1036,19 @@ tables_endpoint = TablesEndpoint()
 
       response_model=PaginatedResponseDTO,
 
-      summary="Get tables",
+      summary="Get venues",
 
-      description="Get paginated list of tables")
+      description="Get paginated list of venues (authenticated)")
 
-async def get_tables(
+async def get_venues(
 
   page: int = Query(1, ge=1, description="Page number"),
 
   page_size: int = Query(10, ge=1, le=100, description="Items per page"),
 
-  venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
+  search: Optional[str] = Query(None, description="Search by name or description"),
 
-  table_status: Optional[TableStatus] = Query(None, description="Filter by table status"),
+  subscription_status: Optional[SubscriptionStatus] = Query(None, description="Filter by subscription status"),
 
   is_active: Optional[bool] = Query(None, description="Filter by active status"),
 
@@ -534,17 +1056,13 @@ async def get_tables(
 
 ):
 
-  """Get tables with pagination and filtering"""
+  """Get venues with pagination and filtering"""
 
   filters = {}
 
-  if venue_id:
+  if subscription_status:
 
-    filters['venue_id'] = venue_id
-
-  if table_status:
-
-    filters['table_status'] = table_status.value
+    filters['subscription_status'] = subscription_status.value
 
   if is_active is not None:
 
@@ -552,107 +1070,19 @@ async def get_tables(
 
    
 
-  try:
+  return await venues_endpoint.get_items(
 
-    result = await tables_endpoint.get_items(
+    page=page,
 
-      page=page,
+    page_size=page_size,
 
-      page_size=page_size,
+    search=search,
 
-      filters=filters,
+    filters=filters,
 
-      current_user=current_user
+    current_user=current_user
 
-    )
-
-    return result
-
-  except Exception as e:
-
-    logger.error(f"Error getting tables list: {e}")
-
-    # If it's a validation error, try to fix the data
-
-    if "validation error" in str(e).lower() and "table_status" in str(e).lower():
-
-      logger.info("Attempting to fix table status validation issues...")
-
-      # Get repository and fix data
-
-      repo = get_table_repo()
-
-      try:
-
-        # Get all tables and fix status issues
-
-        all_tables = await repo.get_all()
-
-        fixes_applied = 0
-
-         
-
-        for table in all_tables:
-
-          table_id = table.get('id')
-
-          current_status = table.get('table_status')
-
-           
-
-          # Fix misspelled status
-
-          if current_status == 'maintence':
-
-            await repo.update(table_id, {'table_status': 'maintenance'})
-
-            fixes_applied += 1
-
-            logger.info(f"Fixed table {table.get('table_number')}: maintence → maintenance")
-
-          elif current_status not in [status.value for status in TableStatus]:
-
-            await repo.update(table_id, {'table_status': 'available'})
-
-            fixes_applied += 1
-
-            logger.info(f"Fixed table {table.get('table_number')}: {current_status} → available")
-
-         
-
-        if fixes_applied > 0:
-
-          logger.info(f"Applied {fixes_applied} table status fixes, retrying request...")
-
-          # Retry the request
-
-          return await tables_endpoint.get_items(
-
-            page=page,
-
-            page_size=page_size,
-
-            filters=filters,
-
-            current_user=current_user
-
-          )
-
-         
-
-      except Exception as fix_error:
-
-        logger.error(f"Failed to fix table status data: {fix_error}")
-
-     
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail=f"Failed to get tables list: {str(e)}"
-
-    )
+  )
 
 
 
@@ -664,175 +1094,157 @@ async def get_tables(
 
        status_code=status.HTTP_201_CREATED,
 
-       summary="Create table",
+       summary="Create venue",
 
-       description="Create a new table with QR code")
+       description="Create a new venue")
 
-async def create_table(
+async def create_venue(
 
-  table_data: TableCreateDTO,
+  venue_data: VenueCreateDTO,
 
   current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Create a new table"""
+  """Create a new venue"""
 
-  return await tables_endpoint.create_item(table_data, current_user)
-
-
+  return await venues_endpoint.create_item(venue_data, current_user)
 
 
 
-@router.get("/{table_id}", 
 
-      response_model=TableResponseDTO,
 
-      summary="Get table by ID (Public)",
+@router.get("/my-venues", 
 
-      description="Get specific table by ID - Public endpoint for QR code access")
+      response_model=List[VenueResponseDTO],
 
-async def get_table(
+      summary="Get my venues",
 
-  table_id: str
+      description="Get venues owned by current user")
+
+async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin_user)):
+
+  """Get current user's venues"""
+
+  try:
+
+    repo = get_venue_repo()
+
+    venues_data = await repo.get_by_owner(current_user["id"])
+
+     
+
+    # Clean and add default status if missing
+
+    venues = []
+
+    for venue in venues_data:
+
+      venue = clean_venue_status(venue)
+
+      venues.append(VenueResponseDTO(**venue))
+
+     
+
+    logger.info(f"Retrieved {len(venues)} venues for user {current_user['id']}")
+
+    return venues
+
+     
+
+  except Exception as e:
+
+    logger.error(f"Error getting user venues: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get venues"
+
+    )
+
+
+
+
+
+@router.get("/{venue_id}", 
+
+      response_model=VenueResponseDTO,
+
+      summary="Get venue by ID",
+
+      description="Get specific venue by ID")
+
+async def get_venue(
+
+  venue_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
 
 ):
 
-  """Get table by ID - Public endpoint for QR code scanning"""
+  """Get venue by ID"""
 
-  # Public endpoint - no authentication required for QR code access
-
-  return await tables_endpoint.get_item(table_id, current_user=None)
+  return await venues_endpoint.get_item(venue_id, current_user)
 
 
 
 
 
-@router.put("/{table_id}", 
+@router.put("/{venue_id}", 
 
       response_model=ApiResponseDTO,
 
-      summary="Update table",
+      summary="Update venue",
 
-      description="Update table information")
+      description="Update venue information")
 
-async def update_table(
+async def update_venue(
 
-  table_id: str,
+  venue_id: str,
 
-  table_update: TableUpdateDTO,
+  venue_update: VenueUpdateDTO,
 
   current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Update table information"""
+  """Update venue information"""
 
-  return await tables_endpoint.update_item(table_id, table_update, current_user)
-
-
+  return await venues_endpoint.update_item(venue_id, venue_update, current_user)
 
 
 
-@router.delete("/{table_id}", 
+
+
+@router.delete("/{venue_id}", 
 
         response_model=ApiResponseDTO,
 
-        summary="Delete table",
+        summary="Delete venue",
 
-        description="Deactivate table (soft delete)")
+        description="Delete venue (hard delete)")
 
-async def delete_table(
+async def delete_venue(
 
-  table_id: str,
+  venue_id: str,
 
   current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Delete table (soft delete by deactivating)"""
-
-  return await tables_endpoint.delete_item(table_id, current_user, soft_delete=True)
-
-
-
-
-
-# =============================================================================
-
-# TABLE STATUS MANAGEMENT ENDPOINTS
-
-# =============================================================================
-
-
-
-class TableStatusUpdate(BaseModel):
-
-  new_status: TableStatus
-
-
-
-@router.put("/{table_id}/status", 
-
-      response_model=ApiResponseDTO,
-
-      summary="Update table status",
-
-      description="Update table status (available, occupied, etc.)")
-
-async def update_table_status(
-
-  table_id: str,
-
-  status_update: TableStatusUpdate,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
-):
-
-  """Update table status"""
+  """Delete venue (hard delete - permanently removes venue)"""
 
   try:
 
-    # Validate request body
+    logger.info(f"Venue deletion requested for venue_id: {venue_id} by user: {current_user.get('id')}")
 
-    if not status_update or not hasattr(status_update, 'new_status'):
+    result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=False)
 
-      raise HTTPException(
+    logger.info(f"Venue deletion completed for venue_id: {venue_id}")
 
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Request body with 'new_status' field is required"
-
-      )
-
-     
-
-    success = await tables_endpoint.update_table_status(table_id, status_update.new_status, current_user)
-
-     
-
-    if success:
-
-      return ApiResponseDTO(
-
-        success=True,
-
-        message=f"Table status updated to {status_update.new_status.value}"
-
-      )
-
-    else:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Failed to update table status"
-
-      )
-
-       
+    return result
 
   except HTTPException:
 
@@ -840,13 +1252,13 @@ async def update_table_status(
 
   except Exception as e:
 
-    logger.error(f"Error updating table status: {e}")
+    logger.error(f"Error deleting venue {venue_id}: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to update table status"
+      detail="Failed to delete venue"
 
     )
 
@@ -854,55 +1266,33 @@ async def update_table_status(
 
 
 
-@router.post("/{table_id}/occupy", 
+@router.post("/{venue_id}/deactivate", 
 
        response_model=ApiResponseDTO,
 
-       summary="Occupy table",
+       summary="Deactivate venue",
 
-       description="Mark table as occupied")
+       description="Deactivate venue (soft delete)")
 
-async def occupy_table(
+async def deactivate_venue(
 
-  table_id: str,
+  venue_id: str,
 
-  current_user: Dict[str, Any] = Depends(get_current_user)
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Mark table as occupied"""
+  """Deactivate venue (soft delete)"""
 
   try:
 
-    success = await tables_endpoint.update_table_status(
+    logger.info(f"Venue deactivation requested for venue_id: {venue_id} by user: {current_user.get('id')}")
 
-      table_id, TableStatus.OCCUPIED, current_user
+    result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=True)
 
-    )
+    logger.info(f"Venue deactivation completed for venue_id: {venue_id}")
 
-     
-
-    if success:
-
-      return ApiResponseDTO(
-
-        success=True,
-
-        message="Table marked as occupied"
-
-      )
-
-    else:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Failed to occupy table"
-
-      )
-
-       
+    return result
 
   except HTTPException:
 
@@ -910,13 +1300,13 @@ async def occupy_table(
 
   except Exception as e:
 
-    logger.error(f"Error occupying table: {e}")
+    logger.error(f"Error deactivating venue {venue_id}: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to occupy table"
+      detail="Failed to deactivate venue"
 
     )
 
@@ -924,55 +1314,69 @@ async def occupy_table(
 
 
 
-@router.post("/{table_id}/free", 
+@router.post("/{venue_id}/activate", 
 
        response_model=ApiResponseDTO,
 
-       summary="Free table",
+       summary="Activate venue",
 
-       description="Mark table as available")
+       description="Activate deactivated venue")
 
-async def free_table(
+async def activate_venue(
 
-  table_id: str,
+  venue_id: str,
 
-  current_user: Dict[str, Any] = Depends(get_current_user)
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Mark table as available"""
+  """Activate venue"""
 
   try:
 
-    success = await tables_endpoint.update_table_status(
+    repo = get_venue_repo()
 
-      table_id, TableStatus.AVAILABLE, current_user
+     
+
+    # Check if venue exists
+
+    venue = await repo.get_by_id(venue_id)
+
+    if not venue:
+
+      raise HTTPException(
+
+        status_code=status.HTTP_404_NOT_FOUND,
+
+        detail="Venue not found"
+
+      )
+
+     
+
+    # Validate access permissions
+
+    await venues_endpoint._validate_access_permissions(venue, current_user)
+
+     
+
+    # Activate venue
+
+    await repo.update(venue_id, {"is_active": True})
+
+     
+
+    logger.info(f"Venue activated: {venue_id}")
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="Venue activated successfully"
 
     )
 
      
-
-    if success:
-
-      return ApiResponseDTO(
-
-        success=True,
-
-        message="Table marked as available"
-
-      )
-
-    else:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Failed to free table"
-
-      )
-
-       
 
   except HTTPException:
 
@@ -980,13 +1384,13 @@ async def free_table(
 
   except Exception as e:
 
-    logger.error(f"Error freeing table: {e}")
+    logger.error(f"Error activating venue {venue_id}: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to free table"
+      detail="Failed to activate venue"
 
     )
 
@@ -996,67 +1400,147 @@ async def free_table(
 
 # =============================================================================
 
-# QR CODE MANAGEMENT AND PREVIEW ENDPOINTS
+# SEARCH ENDPOINTS
 
 # =============================================================================
 
 
 
-@router.get("/{table_id}/qr-code", 
+@router.get("/search/text", 
+
+      response_model=List[VenueResponseDTO],
+
+      summary="Search venues",
+
+      description="Search venues by name, description, or cuisine")
+
+async def search_venues(
+
+  q: str = Query(..., min_length=2, description="Search query"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
+):
+
+  """Search venues by text"""
+
+  try:
+
+    venues = await venues_endpoint.search_venues_by_text(q, current_user)
+
+     
+
+    logger.info(f"Venue search performed: '{q}' - {len(venues)} results")
+
+    return venues
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error searching venues: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Search failed"
+
+    )
+
+
+
+
+
+@router.get("/filter/subscription/{status}", 
+
+      response_model=List[VenueResponseDTO],
+
+      summary="Get venues by subscription status",
+
+      description="Get venues filtered by subscription status")
+
+async def get_venues_by_subscription(
+
+  status: SubscriptionStatus,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+):
+
+  """Get venues by subscription status"""
+
+  try:
+
+    venues = await venues_endpoint.get_venues_by_subscription_status(status, current_user)
+
+     
+
+    logger.info(f"Venues retrieved by subscription status '{status}': {len(venues)}")
+
+    return venues
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting venues by subscription: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get venues"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# ANALYTICS ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.get("/{venue_id}/analytics", 
 
       response_model=Dict[str, Any],
 
-      summary="Get table QR code",
+      summary="Get venue analytics",
 
-      description="Get QR code data for table")
+      description="Get basic analytics for a venue")
 
-async def get_table_qr_code(
+async def get_venue_analytics(
 
-  table_id: str,
+  venue_id: str,
 
-  current_user: Dict[str, Any] = Depends(get_current_user)
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Get table QR code"""
+  """Get venue analytics"""
 
   try:
 
-    table = await tables_endpoint.get_item(table_id, current_user)
+    analytics = await venues_endpoint.get_venue_analytics(venue_id, current_user)
 
      
 
-    # Decode QR code to get data
+    logger.info(f"Analytics retrieved for venue: {venue_id}")
 
-    qr_data = tables_endpoint._verify_qr_code(table.qr_code)
-
-     
-
-    if not qr_data:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-        detail="Invalid QR code data"
-
-      )
-
-     
-
-    return {
-
-      "table_id": table_id,
-
-      "qr_code": table.qr_code,
-
-      "qr_code_url": table.qr_code_url,
-
-      "venue_id": qr_data.venue_id,
-
-      "table_number": qr_data.table_number
-
-    }
+    return analytics
 
      
 
@@ -1066,13 +1550,13 @@ async def get_table_qr_code(
 
   except Exception as e:
 
-    logger.error(f"Error getting table QR code: {e}")
+    logger.error(f"Error getting venue analytics: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to get QR code"
+      detail="Failed to get analytics"
 
     )
 
@@ -1080,59 +1564,281 @@ async def get_table_qr_code(
 
 
 
-@router.post("/{table_id}/regenerate-qr", 
+# =============================================================================
+
+# MEDIA UPLOAD ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.post("/{venue_id}/logo", 
 
        response_model=ApiResponseDTO,
 
-       summary="Regenerate table QR code",
+       summary="Upload venue logo",
 
-       description="Regenerate QR code for table")
+       description="Upload venue logo image")
 
-async def regenerate_table_qr_code(
+async def upload_venue_logo(
 
-  table_id: str,
+  venue_id: str,
+
+  file: UploadFile = File(...),
 
   current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Regenerate table QR code"""
+  """Upload venue logo to Cloud Storage"""
 
   try:
 
-    table = await tables_endpoint.get_item(table_id, current_user)
+    # Validate venue access
+
+    venue = await venues_endpoint.get_item(venue_id, current_user)
 
      
 
-    # Generate new QR code
+    # Upload logo using storage service
 
-    new_qr_code = tables_endpoint._generate_qr_code(table.venue_id, table.table_number)
+    from  app.services.storage_service import get_storage_service
+
+    storage_service = get_storage_service()
+
+    logo_url = await storage_service.upload_image(file, "venues", venue_id)
 
      
 
-    # Update table
+    # Update venue with logo URL
 
-    repo = get_table_repo()
+    repo = get_venue_repo()
 
-    await repo.update(table_id, {
+    await repo.update(venue_id, {"logo_url": logo_url})
 
-      "qr_code": new_qr_code,
+     
 
-      "qr_code_url": None # Reset URL, will be regenerated
+    logger.info(f"Logo uploaded for venue: {venue_id}")
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="Logo uploaded successfully",
+
+      data={"logo_url": logo_url}
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error uploading logo for venue {venue_id}: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to upload logo"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# OPERATING HOURS ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.put("/{venue_id}/hours", 
+
+      response_model=ApiResponseDTO,
+
+      summary="Update operating hours",
+
+      description="Update venue operating hours")
+
+async def update_operating_hours(
+
+  venue_id: str,
+
+  operating_hours: List[VenueOperatingHours],
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+):
+
+  """Update venue operating hours"""
+
+  try:
+
+    # Validate venue access
+
+    venue = await venues_endpoint.get_item(venue_id, current_user)
+
+     
+
+    # Update operating hours
+
+    repo = get_venue_repo()
+
+    hours_data = [hours.dict() for hours in operating_hours]
+
+    await repo.update(venue_id, {"operating_hours": hours_data})
+
+     
+
+    logger.info(f"Operating hours updated for venue: {venue_id}")
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message="Operating hours updated successfully"
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error updating operating hours for venue {venue_id}: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to update operating hours"
+
+    )
+
+
+
+
+
+@router.get("/{venue_id}/hours", 
+
+      response_model=List[VenueOperatingHours],
+
+      summary="Get operating hours",
+
+      description="Get venue operating hours")
+
+async def get_operating_hours(
+
+  venue_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
+):
+
+  """Get venue operating hours"""
+
+  try:
+
+    venue = await venues_endpoint.get_item(venue_id, current_user)
+
+     
+
+    operating_hours = venue.operating_hours or []
+
+    return operating_hours
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting operating hours for venue {venue_id}: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get operating hours"
+
+    )
+
+
+
+
+
+# =============================================================================
+
+# SUBSCRIPTION MANAGEMENT ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.put("/{venue_id}/subscription", 
+
+      response_model=ApiResponseDTO,
+
+      summary="Update subscription",
+
+      description="Update venue subscription plan and status")
+
+async def update_subscription(
+
+  venue_id: str,
+
+  subscription_plan: SubscriptionPlan,
+
+  subscription_status: SubscriptionStatus,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+):
+
+  """Update venue subscription"""
+
+  try:
+
+    # Validate venue access
+
+    venue = await venues_endpoint.get_item(venue_id, current_user)
+
+     
+
+    # Update subscription
+
+    repo = get_venue_repo()
+
+    await repo.update(venue_id, {
+
+      "subscription_plan": subscription_plan.value,
+
+      "subscription_status": subscription_status.value
 
     })
 
      
 
-    logger.info(f"QR code regenerated for table: {table_id}")
+    logger.info(f"Subscription updated for venue: {venue_id}")
 
     return ApiResponseDTO(
 
       success=True,
 
-      message="QR code regenerated successfully",
-
-      data={"qr_code": new_qr_code}
+      message="Subscription updated successfully"
 
     )
 
@@ -1144,143 +1850,13 @@ async def regenerate_table_qr_code(
 
   except Exception as e:
 
-    logger.error(f"Error regenerating QR code: {e}")
+    logger.error(f"Error updating subscription for venue {venue_id}: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to regenerate QR code"
-
-    )
-
-
-
-
-
-@router.post("/verify-qr", 
-
-       response_model=Dict[str, Any],
-
-       summary="Verify QR code (Public)",
-
-       description="Verify and decode table QR code - Public endpoint")
-
-async def verify_qr_code(
-
-  qr_code: str
-
-):
-
-  """Verify QR code and return table information - Public endpoint"""
-
-  try:
-
-    # Decode QR code
-
-    qr_data = tables_endpoint._verify_qr_code(qr_code)
-
-     
-
-    if not qr_data:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Invalid QR code"
-
-      )
-
-     
-
-    # Get table information (public access)
-
-    table = await tables_endpoint.get_table_by_qr_code(qr_code)
-
-     
-
-    if not table:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_404_NOT_FOUND,
-
-        detail="Table not found"
-
-      )
-
-     
-
-    # Get venue information
-
-    from app.database.firestore import get_venue_repo
-
-    venue_repo = get_venue_repo()
-
-    venue = await venue_repo.get_by_id(table.venue_id)
-
-     
-
-    if not venue:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_404_NOT_FOUND,
-
-        detail="Venue not found"
-
-      )
-
-     
-
-    return {
-
-      "valid": True,
-
-      "table": {
-
-        "id": table.id,
-
-        "table_number": table.table_number,
-
-        "capacity": table.capacity,
-
-        "location": table.location,
-
-        "status": table.table_status
-
-      },
-
-      "venue": {
-
-        "id": venue["id"],
-
-        "name": venue["name"],
-
-        "description": venue["description"],
-
-        "is_active": venue.get("is_active", False)
-
-      }
-
-    }
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error verifying QR code: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to verify QR code"
+      detail="Failed to update subscription"
 
     )
 
@@ -1290,247 +1866,91 @@ async def verify_qr_code(
 
 # =============================================================================
 
-# PUBLIC TABLE ACCESS ENDPOINTS (for QR codes)
+# DATA MAINTENANCE ENDPOINTS
 
 # =============================================================================
 
 
 
-@router.get("/public/{table_id}", 
+@router.post("/fix-venue-status", 
 
-      response_model=Dict[str, Any],
+       response_model=ApiResponseDTO,
 
-      summary="Get table info (Public)",
+       summary="Fix venue status data",
 
-      description="Get table information for public access via QR codes")
+       description="Fix any venues with incorrect status values")
 
-async def get_table_public(
+async def fix_venue_status_data(
 
-  table_id: str
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
 
 ):
 
-  """Get table information for public access (QR code scanning)"""
+  """Fix venue status data for all venues"""
 
   try:
 
-    repo = get_table_repo()
-
-    table_data = await repo.get_by_id(table_id)
-
-     
-
-    if not table_data:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_404_NOT_FOUND,
-
-        detail="Table not found"
-
-      )
-
-     
-
-    # Get venue information
-
-    from app.database.firestore import get_venue_repo
-
-    venue_repo = get_venue_repo()
-
-    venue = await venue_repo.get_by_id(table_data['venue_id'])
-
-     
-
-    if not venue:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_404_NOT_FOUND,
-
-        detail="Venue not found"
-
-      )
-
-     
-
-    # Return public table information
-
-    return {
-
-      "table": {
-
-        "id": table_data["id"],
-
-        "table_number": table_data["table_number"],
-
-        "capacity": table_data.get("capacity", 4),
-
-        "location": table_data.get("location"),
-
-        "status": table_data.get("table_status", "available"),
-
-        "qr_code": table_data.get("qr_code")
-
-      },
-
-      "venue": {
-
-        "id": venue["id"],
-
-        "name": venue["name"],
-
-        "description": venue.get("description"),
-
-        "is_active": venue.get("is_active", False)
-
-      }
-
-    }
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error getting public table info: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to get table information"
-
-    )
-
-
-
-
-
-# =============================================================================
-
-# VENUE TABLE ENDPOINTS
-
-# =============================================================================
-
-
-
-@router.get("/venues/{venue_id}/tables", 
-
-      response_model=List[TableResponseDTO],
-
-      summary="Get venue tables",
-
-      description="Get all tables for a specific venue")
-
-async def get_venue_tables(
-
-  venue_id: str,
-
-  status: Optional[TableStatus] = Query(None, description="Filter by status"),
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
-):
-
-  """Get all tables for a venue"""
-
-  try:
-
-    # Validate venue access
-
-    await tables_endpoint._validate_venue_access(venue_id, current_user)
-
-     
-
-    repo = get_table_repo()
-
-     
-
-    if status:
-
-      tables_data = await repo.get_by_status(venue_id, status.value)
-
-    else:
-
-      tables_data = await repo.get_by_venue(venue_id)
-
-     
-
-    # Filter active tables for non-admin users
+    # Only allow superadmin to run this
 
     from app.core.security import _get_user_role
 
     user_role = await _get_user_role(current_user)
 
-    if user_role not in ['admin', 'superadmin']:
+    if user_role != 'superadmin':
 
-      tables_data = [table for table in tables_data if table.get('is_active', False)]
+      raise HTTPException(
+
+        status_code=status.HTTP_403_FORBIDDEN,
+
+        detail="Only superadmin can run data maintenance"
+
+      )
 
      
 
-    # Fix legacy table status data before validation
+    repo = get_venue_repo()
 
-    processed_tables = []
+    all_venues = await repo.get_all()
 
-    for table in tables_data:
+     
 
-      # Fix misspelled 'maintence' to 'maintenance'
+    fixed_count = 0
 
-      if table.get('table_status') == 'maintence':
+    for venue in all_venues:
 
-        table['table_status'] = 'maintenance'
+      original_status = venue.get('status')
 
-        # Update in database
+      cleaned_venue = clean_venue_status(venue.copy())
 
-        try:
-
-          await repo.update(table['id'], {'table_status': 'maintenance'})
-
-          logger.info(f"Fixed table status for table {table.get('table_number')}: maintence → maintenance")
-
-        except Exception as e:
-
-          logger.error(f"Failed to fix table status for table {table['id']}: {e}")
+      new_status = cleaned_venue.get('status')
 
        
 
-      # Ensure table_status is valid, default to 'available' if invalid
+      # If status was changed, update the venue
 
-      valid_statuses = [status.value for status in TableStatus]
+      if original_status != new_status:
 
-      if table.get('table_status') not in valid_statuses:
+        await repo.update(venue['id'], {'status': new_status})
 
-        logger.warning(f"Invalid table status '{table.get('table_status')}' for table {table.get('table_number')}, defaulting to 'available'")
+        fixed_count += 1
 
-        table['table_status'] = 'available'
-
-        # Update in database
-
-        try:
-
-          await repo.update(table['id'], {'table_status': 'available'})
-
-        except Exception as e:
-
-          logger.error(f"Failed to fix table status for table {table['id']}: {e}")
-
-       
-
-      processed_tables.append(table)
+        logger.info(f"Fixed venue {venue['id']} status from {repr(original_status)} to {repr(new_status)}")
 
      
 
-    tables = [TableResponseDTO(**table) for table in processed_tables]
+    logger.info(f"Venue status data maintenance completed. Fixed {fixed_count} venues.")
 
      
 
-    logger.info(f"Retrieved {len(tables)} tables for venue: {venue_id}")
+    return ApiResponseDTO(
 
-    return tables
+      success=True,
+
+      message=f"Venue status data fixed. Updated {fixed_count} venues.",
+
+      data={"fixed_count": fixed_count, "total_venues": len(all_venues)}
+
+    )
 
      
 
@@ -1540,13 +1960,13 @@ async def get_venue_tables(
 
   except Exception as e:
 
-    logger.error(f"Error getting venue tables: {e}")
+    logger.error(f"Error fixing venue status data: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to get tables"
+      detail="Failed to fix venue status data"
 
     )
 
@@ -1554,15 +1974,15 @@ async def get_venue_tables(
 
 
 
-@router.get("/venues/{venue_id}/statistics", 
+@router.get("/{venue_id}/users", 
 
-      response_model=Dict[str, Any],
+      response_model=List[Dict[str, Any]],
 
-      summary="Get venue table statistics",
+      summary="Get venue users",
 
-      description="Get table statistics for a venue")
+      description="Get all users assigned to a specific venue")
 
-async def get_venue_table_statistics(
+async def get_venue_users(
 
   venue_id: str,
 
@@ -1570,153 +1990,69 @@ async def get_venue_table_statistics(
 
 ):
 
-  """Get table statistics for a venue"""
-
-  try:
-
-    statistics = await tables_endpoint.get_venue_table_statistics(venue_id, current_user)
-
-     
-
-    logger.info(f"Table statistics retrieved for venue: {venue_id}")
-
-    return statistics
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error getting table statistics: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to get table statistics"
-
-    )
-
-
-
-
-
-# =============================================================================
-
-# BULK OPERATIONS ENDPOINTS
-
-# =============================================================================
-
-
-
-@router.post("/bulk-create", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Bulk create tables",
-
-       description="Create multiple tables at once")
-
-async def bulk_create_tables(
-
-  venue_id: str,
-
-  start_number: int = Query(..., ge=1, description="Starting table number"),
-
-  count: int = Query(..., ge=1, le=50, description="Number of tables to create"),
-
-  capacity: int = Query(4, ge=1, le=20, description="Default capacity for all tables"),
-
-  location: Optional[str] = Query(None, description="Default location for all tables"),
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
-):
-
-  """Bulk create tables"""
+  """Get all users assigned to a specific venue"""
 
   try:
 
     # Validate venue access
 
-    await tables_endpoint._validate_venue_access(venue_id, current_user)
+    venue = await venues_endpoint.get_item(venue_id, current_user)
 
      
 
-    # Check for existing table numbers
+    # Get user repository
 
-    repo = get_table_repo()
+    from app.core.dependency_injection import get_repository_manager
 
-    existing_tables = await repo.get_by_venue(venue_id)
-
-    existing_numbers = {table.get('table_number') for table in existing_tables}
+    user_repo = get_repository_manager().get_repository('user')
 
      
 
-    # Prepare table data
+    # Get users assigned to this venue
 
-    tables_to_create = []
+    venue_users = await user_repo.get_by_venue(venue_id)
 
-    for i in range(count):
+     
 
-      table_number = start_number + i
+    # Format user data for response
 
-       
+    formatted_users = []
 
-      if table_number in existing_numbers:
+    for user in venue_users:
 
-        raise HTTPException(
+      formatted_user = {
 
-          status_code=status.HTTP_400_BAD_REQUEST,
+        "id": user.get('id'),
 
-          detail=f"Table number {table_number} already exists"
+        "email": user.get('email'),
 
-        )
+        "first_name": user.get('first_name'),
 
-       
+        "last_name": user.get('last_name'),
 
-      table_data = {
+        "phone": user.get('phone'),
 
-        "venue_id": venue_id,
+        "role_id": user.get('role_id'),
 
-        "table_number": table_number,
+        "is_active": user.get('is_active', True),
 
-        "capacity": capacity,
+        "is_verified": user.get('is_verified', False),
 
-        "location": location,
+        "last_login": user.get('last_login'),
 
-        "qr_code": tables_endpoint._generate_qr_code(venue_id, table_number),
+        "created_at": user.get('created_at'),
 
-        "table_status": TableStatus.AVAILABLE.value,
-
-        "is_active": True
+        "updated_at": user.get('updated_at'),
 
       }
 
-      tables_to_create.append(table_data)
+      formatted_users.append(formatted_user)
 
      
 
-    # Bulk create
+    logger.info(f"Retrieved {len(formatted_users)} users for venue: {venue_id}")
 
-    created_ids = await repo.create_batch(tables_to_create)
-
-     
-
-    logger.info(f"Bulk created {len(created_ids)} tables for venue: {venue_id}")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message=f"Created {len(created_ids)} tables successfully",
-
-      data={"created_count": len(created_ids), "table_ids": created_ids}
-
-    )
+    return formatted_users
 
      
 
@@ -1726,100 +2062,12 @@ async def bulk_create_tables(
 
   except Exception as e:
 
-    logger.error(f"Error bulk creating tables: {e}")
+    logger.error(f"Error getting venue users: {e}")
 
     raise HTTPException(
 
       status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
 
-      detail="Failed to create tables"
-
-    )
-
-
-
-
-
-@router.post("/bulk-update-status", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Bulk update table status",
-
-       description="Update status for multiple tables")
-
-async def bulk_update_table_status(
-
-  table_ids: List[str],
-
-  new_status: TableStatus,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
-):
-
-  """Bulk update table status"""
-
-  try:
-
-    repo = get_table_repo()
-
-     
-
-    # Validate all tables exist and user has access
-
-    for table_id in table_ids:
-
-      table = await repo.get_by_id(table_id)
-
-      if not table:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_404_NOT_FOUND,
-
-          detail=f"Table {table_id} not found"
-
-        )
-
-       
-
-      await tables_endpoint._validate_access_permissions(table, current_user)
-
-     
-
-    # Bulk update
-
-    updates = [(table_id, {"table_status": new_status.value}) for table_id in table_ids]
-
-    await repo.update_batch(updates)
-
-     
-
-    logger.info(f"Bulk updated status for {len(table_ids)} tables to {new_status.value}")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message=f"Updated status for {len(table_ids)} tables to {new_status.value}"
-
-    )
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error bulk updating table status: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to update table status"
+      detail="Failed to get venue users"
 
     )
