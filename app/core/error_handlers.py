@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import traceback
 
 from app.core.logging_config import get_logger
-from app.models.schemas import ErrorResponse
+from app.models.dto import ErrorResponseDTO
 
 logger = get_logger(__name__)
 
@@ -41,9 +41,9 @@ class ErrorHandler:
         status_code: int = 500,
         error_code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None
-    ) -> ErrorResponse:
+    ) -> ErrorResponseDTO:
         """Create standardized error response"""
-        return ErrorResponse(
+        return ErrorResponseDTO(
             success=False,
             error=error,
             error_code=error_code,
@@ -99,7 +99,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.dict()
+        content=error_response.model_dump(mode='json')
     )
 
 
@@ -125,7 +125,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content=error_response.dict()
+        content=error_response.model_dump(mode='json')
     )
 
 
@@ -142,7 +142,7 @@ async def api_exception_handler(request: Request, exc: APIError) -> JSONResponse
     
     return JSONResponse(
         status_code=exc.status_code,
-        content=error_response.dict()
+        content=error_response.model_dump(mode='json')
     )
 
 
@@ -171,7 +171,7 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
     
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_response.dict()
+        content=error_response.model_dump(mode='json')
     )
 
 

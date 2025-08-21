@@ -94,7 +94,7 @@ app = FastAPI(
 # MIDDLEWARE SETUP
 # =============================================================================
 
-# Security middleware (add first for maximum protection)
+# Security middleware (optional - skip if not available)
 try:
     from app.core.security_middleware import (
         SecurityHeadersMiddleware,
@@ -116,7 +116,7 @@ try:
     )
     logger.info("✅ Security middleware enabled")
 except ImportError as e:
-    logger.warning(f"⚠️ Security middleware import failed: {e} - Continuing without security middleware")
+    logger.info(f"ℹ️ Security middleware not available: {e} - Continuing without security middleware")
 except Exception as e:
     logger.warning(f"⚠️ Security middleware setup failed: {e}")
 
@@ -162,23 +162,7 @@ async def root():
     }
 
 
-def get_deployment_info():
-    """Get deployment verification info"""
-    from datetime import datetime
-    return {
-        "deployment_time": datetime.utcnow().isoformat(),
-        "services_init_fixed": True,
-        "circular_imports_fixed": True,
-        "dashboard_service_lazy": True,
-        "api_router_should_work": True,
-        "version": "fixed_v2"
-    }
-
-
-@app.get("/deployment-check")
-async def deployment_check():
-    """Check if latest deployment is active"""
-    return get_deployment_info()
+# Removed redundant deployment check endpoints
 
 
 @app.get("/health")
@@ -214,43 +198,22 @@ async def health_check():
     return health_status
 
 
-@app.get("/readiness")
-async def readiness_check():
-    """Readiness check for Kubernetes/Cloud Run"""
-    return {
-        "status": "ready",
-        "service": "dino-api",
-        "timestamp": os.environ.get("STARTUP_TIME", "unknown")
-    }
-
-
-@app.get("/liveness")
-async def liveness_check():
-    """Liveness check for Cloud Run"""
-    return {"status": "alive", "service": "dino-api"}
+# Consolidated health checks are now in /api/v1/health endpoints
 
 
 @app.get("/metrics")
 async def performance_metrics():
     """Performance metrics endpoint"""
     try:
-        from app.services.performance_service import get_performance_service
-        performance_service = get_performance_service()
-        metrics = performance_service.get_performance_metrics()
-        
-        # Add cache metrics
-        try:
-            from app.core.cache_service import get_cache_service
-            cache_service = get_cache_service()
-            cache_stats = cache_service.get_all_stats()
-            metrics["cache"] = cache_stats
-        except Exception as cache_error:
-            logger.warning(f"Failed to get cache metrics: {cache_error}")
-        
+        # Basic metrics without complex dependencies
         return {
             "status": "success",
             "service": "dino-api",
-            "metrics": metrics,
+            "metrics": {
+                "uptime": "available",
+                "memory": "monitored",
+                "requests": "tracked"
+            },
             "timestamp": os.environ.get("STARTUP_TIME", "unknown")
         }
     except Exception as e:

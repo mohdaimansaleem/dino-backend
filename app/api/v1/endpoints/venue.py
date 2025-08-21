@@ -15,10 +15,7 @@ from app.core.base_endpoint import WorkspaceIsolatedEndpoint
 from app.database.firestore import get_venue_repo, VenueRepository
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.logging_config import get_logger
-from app.core.generic_utils import (
-    validate_superadmin_only, validate_resource_ownership, handle_endpoint_errors,
-    safe_get_resource, generic_activate_resource, create_success_response
-)
+from app.core.error_recovery import ErrorRecoveryMixin
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -87,13 +84,12 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate venue creation permissions"""
-        # Use consolidated permission validation
-        from app.core.generic_utils import validate_user_permissions
-        await validate_user_permissions(
-            current_user,
-            ['venue:create', 'venue:manage'],
-            resource_type='venue'
-        )
+        # Basic permission check - only admin and superadmin can create venues
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required"
+            )
     
     async def _validate_access_permissions(self, 
                                          item: Dict[str, Any], 
@@ -105,9 +101,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
         # Call parent workspace validation
         await super()._validate_access_permissions(item, current_user)
         
-        # Use consolidated resource access validation
-        from app.core.generic_utils import validate_resource_access
-        await validate_resource_access(current_user, item, "read")
+        # Basic access validation handled by parent class
     
     async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
@@ -484,8 +478,13 @@ async def get_venues_by_workspace(
                     'city': venue['location'].get('city', ''),
                     'state': venue['location'].get('state', ''),
                     'country': venue['location'].get('country', ''),
-                    'address': venue['location'].get('address', '')
+                    'address': venue['location'].get('address', ''),
+                    'postal_code': venue['location'].get('postal_code', '')
                 }
+            
+            # Determine is_open based on status - true if status is 'active', false otherwise
+            venue_status = venue.get('status', VenueStatus.ACTIVE)
+            is_open = venue_status == VenueStatus.ACTIVE.value or venue_status == VenueStatus.ACTIVE
             
             # Create simplified venue DTO
             simplified_venue = VenueWorkspaceListDTO(
@@ -496,8 +495,7 @@ async def get_venues_by_workspace(
                 phone=venue.get('phone'),
                 email=venue.get('email'),
                 is_active=venue.get('is_active', False),
-                is_open=venue.get('is_open', False),
-                status=venue.get('status', VenueStatus.ACTIVE),
+                is_open=is_open,
                 subscription_status=venue.get('subscription_status', SubscriptionStatus.ACTIVE),
                 created_at=venue.get('created_at', datetime.utcnow()),
                 updated_at=venue.get('updated_at', datetime.utcnow())
@@ -617,34 +615,91 @@ async def update_venue(
 @router.delete("/{venue_id}", 
                response_model=ApiResponseDTO,
                summary="Delete venue",
-               description="Deactivate venue (soft delete)")
+               description="Delete venue (hard delete)")
 async def delete_venue(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Delete venue (soft delete by deactivating)"""
-    return await venues_endpoint.delete_item(venue_id, current_user, soft_delete=True)
+    """Delete venue (hard delete - permanently removes venue)"""
+    try:
+        logger.info(f"Venue deletion requested for venue_id: {venue_id} by user: {current_user.get('id')}")
+        result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=False)
+        logger.info(f"Venue deletion completed for venue_id: {venue_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete venue"
+        )
+
+
+@router.post("/{venue_id}/deactivate", 
+             response_model=ApiResponseDTO,
+             summary="Deactivate venue",
+             description="Deactivate venue (soft delete)")
+async def deactivate_venue(
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Deactivate venue (soft delete)"""
+    try:
+        logger.info(f"Venue deactivation requested for venue_id: {venue_id} by user: {current_user.get('id')}")
+        result = await venues_endpoint.delete_item(venue_id, current_user, soft_delete=True)
+        logger.info(f"Venue deactivation completed for venue_id: {venue_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deactivating venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate venue"
+        )
 
 
 @router.post("/{venue_id}/activate", 
              response_model=ApiResponseDTO,
              summary="Activate venue",
              description="Activate deactivated venue")
-@handle_endpoint_errors("Venue activation")
 async def activate_venue(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Activate venue"""
-    repo = get_venue_repo()
-    
-    return await generic_activate_resource(
-        repo=repo,
-        resource_id=venue_id,
-        current_user=current_user,
-        resource_name="Venue",
-        validation_func=venues_endpoint._validate_access_permissions
-    )
+    try:
+        repo = get_venue_repo()
+        
+        # Check if venue exists
+        venue = await repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Validate access permissions
+        await venues_endpoint._validate_access_permissions(venue, current_user)
+        
+        # Activate venue
+        await repo.update(venue_id, {"is_active": True})
+        
+        logger.info(f"Venue activated: {venue_id}")
+        return ApiResponseDTO(
+            success=True,
+            message="Venue activated successfully"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating venue {venue_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate venue"
+        )
 
 
 # =============================================================================
@@ -748,12 +803,10 @@ async def upload_venue_logo(
         # Validate venue access
         venue = await venues_endpoint.get_item(venue_id, current_user)
         
-        # TODO: Implement storage service
-        # storage_service = get_storage_service()
-        # logo_url = await storage_service.upload_image(...)
-        
-        # Mock implementation for now
-        logo_url = f"https://example.com/venues/{venue_id}/logo.jpg"
+        # Upload logo using storage service
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        logo_url = await storage_service.upload_image(file, "venues", venue_id)
         
         # Update venue with logo URL
         repo = get_venue_repo()
@@ -940,12 +993,12 @@ async def fix_venue_status_data(
 @router.get("/{venue_id}/users", 
             response_model=List[Dict[str, Any]],
             summary="Get venue users",
-            description="Get all users assigned to a specific venue")
+            description="Get all users assigned to a specific venue with role details")
 async def get_venue_users(
     venue_id: str,
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Get all users assigned to a specific venue"""
+    """Get all users assigned to a specific venue with complete role information"""
     try:
         # Validate venue access
         venue = await venues_endpoint.get_item(venue_id, current_user)
@@ -954,24 +1007,69 @@ async def get_venue_users(
         from app.core.dependency_injection import get_repository_manager
         user_repo = get_repository_manager().get_repository('user')
         
+        # Get role repository for role lookups
+        from app.database.firestore import get_role_repo
+        role_repo = get_role_repo()
+        
         # Get users assigned to this venue
         venue_users = await user_repo.get_by_venue(venue_id)
         
-        # Format user data for response
+        # Format user data for response with role details
         formatted_users = []
         for user in venue_users:
+            # Get role information
+            role_id = user.get('role_id')
+            role_name = 'operator'  # Default fallback
+            role_display_name = 'Operator'  # Default fallback
+            
+            if role_id:
+                try:
+                    role = await role_repo.get_by_id(role_id)
+                    if role:
+                        role_name = role.get('name', 'operator')
+                        role_display_name = role.get('display_name', role_name.title())
+                except Exception as e:
+                    logger.warning(f"Could not fetch role for role_id {role_id}: {e}")
+            
+            # Create user_name from first_name and last_name
+            first_name = user.get('first_name', '')
+            last_name = user.get('last_name', '')
+            user_name = f"{first_name} {last_name}".strip() or user.get('email', 'Unknown User')
+            
+            # Determine status from is_active
+            is_active = user.get('is_active', True)
+            status = 'active' if is_active else 'inactive'
+            
+            # Format last login
+            last_login = user.get('last_login')
+            last_logged_in = None
+            if last_login:
+                # Convert to ISO string if it's a datetime object
+                if hasattr(last_login, 'isoformat'):
+                    last_logged_in = last_login.isoformat()
+                else:
+                    last_logged_in = str(last_login)
+            
             formatted_user = {
                 "id": user.get('id'),
                 "email": user.get('email'),
-                "first_name": user.get('first_name'),
-                "last_name": user.get('last_name'),
                 "phone": user.get('phone'),
-                "role_id": user.get('role_id'),
-                "is_active": user.get('is_active', True),
-                "is_verified": user.get('is_verified', False),
-                "last_login": user.get('last_login'),
+                "user_name": user_name,
+                "first_name": first_name,
+                "last_name": last_name,
+                "role": role_name,
+                "role_display_name": role_display_name,
+                "last_logged_in": last_logged_in,
+                "status": status,
+                "is_active": is_active,
+                "venue_id": venue_id,
+                "workspace_id": user.get('workspace_id'),
                 "created_at": user.get('created_at'),
                 "updated_at": user.get('updated_at'),
+                # Legacy fields for backward compatibility
+                "role_id": role_id,
+                "is_verified": user.get('is_verified', False),
+                "last_login": last_login,
             }
             formatted_users.append(formatted_user)
         

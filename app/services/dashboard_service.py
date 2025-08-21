@@ -3,8 +3,9 @@ Dashboard Service
 Handles complex dashboard data aggregation and analytics
 """
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from fastapi import HTTPException, status
 
 from app.core.logging_config import get_logger
 # Import moved to avoid circular dependency
@@ -95,19 +96,24 @@ class DashboardService:
             menu_item_repo = self._get_repo_manager().get_repository('menu_item')
             user_repo = self._get_repo_manager().get_repository('user')
             
-            # Get today's date range
+            # Get today's date range (timezone-aware)
             today = datetime.utcnow().date()
-            today_start = datetime.combine(today, datetime.min.time())
-            today_end = datetime.combine(today, datetime.max.time())
+            today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+            today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
             
             # Get all orders for this venue
-            all_orders = await order_repo.get_by_venue_id(venue_id)
+            all_orders = await order_repo.get_by_venue(venue_id)
             
             # Filter today's orders
-            today_orders = [
-                order for order in all_orders
-                if order.get('created_at') and today_start <= order['created_at'] <= today_end
-            ]
+            today_orders = []
+            for order in all_orders:
+                created_at = order.get('created_at')
+                if created_at:
+                    # Ensure created_at is timezone-aware
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    if today_start <= created_at <= today_end:
+                        today_orders.append(order)
             
             # Calculate today's revenue (only paid orders)
             today_revenue = sum(
@@ -132,9 +138,18 @@ class DashboardService:
             staff = await user_repo.get_by_venue(venue_id)
             
             # Get recent orders (last 10)
+            def get_order_date(order):
+                created_at = order.get('created_at')
+                if created_at is None:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                # Ensure timezone-aware
+                if created_at.tzinfo is None:
+                    return created_at.replace(tzinfo=timezone.utc)
+                return created_at
+            
             recent_orders = sorted(
                 all_orders,
-                key=lambda x: x.get('created_at', datetime.min),
+                key=get_order_date,
                 reverse=True
             )[:10]
             
@@ -182,7 +197,7 @@ class DashboardService:
             table_repo = self._get_repo_manager().get_repository('table')
             
             # Get all orders for this venue
-            all_orders = await order_repo.get_by_venue_id(venue_id)
+            all_orders = await order_repo.get_by_venue(venue_id)
             
             # Filter active orders (not completed/cancelled)
             active_statuses = [
@@ -261,7 +276,7 @@ class DashboardService:
             table_repo = self._get_repo_manager().get_repository('table')
             
             # Get all orders for this venue
-            all_orders = await order_repo.get_by_venue_id(venue_id)
+            all_orders = await order_repo.get_by_venue(venue_id)
             
             # Filter active orders
             active_statuses = [
@@ -386,19 +401,24 @@ class DashboardService:
                     detail="Venue not found"
                 )
             
-            # Get today's date range
+            # Get today's date range (timezone-aware)
             today = datetime.utcnow().date()
-            today_start = datetime.combine(today, datetime.min.time())
-            today_end = datetime.combine(today, datetime.max.time())
+            today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=timezone.utc)
+            today_end = datetime.combine(today, datetime.max.time()).replace(tzinfo=timezone.utc)
             
             # Get all orders for this venue
-            all_orders = await order_repo.get_by_venue_id(venue_id)
+            all_orders = await order_repo.get_by_venue(venue_id)
             
             # Filter today's orders
-            today_orders = [
-                order for order in all_orders
-                if order.get('created_at') and today_start <= order['created_at'] <= today_end
-            ]
+            today_orders = []
+            for order in all_orders:
+                created_at = order.get('created_at')
+                if created_at:
+                    # Ensure created_at is timezone-aware
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=timezone.utc)
+                    if today_start <= created_at <= today_end:
+                        today_orders.append(order)
             
             # Calculate today's revenue (only paid orders)
             today_revenue = sum(
@@ -425,9 +445,18 @@ class DashboardService:
             staff = await user_repo.get_by_venue(venue_id)
             
             # Get recent orders (last 10)
+            def get_order_date(order):
+                created_at = order.get('created_at')
+                if created_at is None:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                # Ensure timezone-aware
+                if created_at.tzinfo is None:
+                    return created_at.replace(tzinfo=timezone.utc)
+                return created_at
+            
             recent_orders = sorted(
                 all_orders,
-                key=lambda x: x.get('created_at', datetime.min),
+                key=get_order_date,
                 reverse=True
             )[:10]
             

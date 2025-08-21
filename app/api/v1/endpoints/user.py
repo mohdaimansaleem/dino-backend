@@ -21,11 +21,7 @@ from app.core.dependency_injection import get_auth_service
 from app.core.security import get_current_user, get_current_admin_user
 from app.core.unified_password_security import password_handler
 from app.core.logging_config import get_logger
-from app.core.generic_utils import (
-    validate_user_role, validate_admin_or_superadmin, validate_resource_ownership,
-    handle_endpoint_errors, safe_get_resource, generic_activate_resource,
-    create_success_response, validate_unique_field
-)
+from app.core.common_utils import validate_required_fields, raise_validation_error, remove_sensitive_fields, create_success_response
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -87,27 +83,15 @@ class UserEndpoint(WorkspaceIsolatedEndpoint[User, UserCreateDTO, UserUpdateDTO]
         if item['id'] == current_user['id']:
             return
         
-        # Use consolidated permission validation
-        from app.core.generic_utils import validate_user_permissions, get_user_role_cached
+        # Simplified permission check - admin can update any user, users can update themselves
+        from app.core.security import _get_user_role
+        user_role = await _get_user_role(current_user)
         
-        # Check if user has permission to update users
-        await validate_user_permissions(
-            current_user,
-            ['user:manage', 'user:update'],
-            resource_id=item.get('id'),
-            resource_type='user'
-        )
-        
-        # Additional role-specific checks
-        user_role = await get_user_role_cached(current_user)
-        if user_role == 'admin':
-            # Admin can only update operator users
-            target_user_role = await get_user_role_cached(item)
-            if target_user_role not in ['operator']:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Admin can only update operator users"
-                )
+        if user_role not in ['admin', 'superadmin'] and item['id'] != current_user['id']:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to update this user"
+            )
     
     async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
@@ -168,7 +152,7 @@ async def register_user(user_data: UserCreateDTO):
         validation_service = get_validation_service()
         
         # Convert Pydantic model to dict for validation
-        user_dict = user_data.dict()
+        user_dict = user_data.model_dump()
         
         # Validate user data (this will check uniqueness, format, etc.)
         validation_errors = await validation_service.validate_user_data(user_dict, is_update=False)
@@ -265,7 +249,7 @@ async def update_user_profile(
                 )
         
         # Update user
-        updated_user = await get_auth_service().update_user(current_user['id'], update_data.dict(exclude_unset=True))
+        updated_user = await get_auth_service().update_user(current_user['id'], update_data.model_dump(exclude_unset=True))
         
         logger.info(f"User profile updated: {current_user['id']}")
         return ApiResponseDTO(
@@ -355,7 +339,7 @@ async def get_users(
             # Convert to UserResponseDTO format
             try:
                 user_response = UserResponseDTO(**user_copy)
-                response_users.append(user_response.dict())
+                response_users.append(user_response.model_dump(mode='json'))
             except Exception as e:
                 logger.warning(f"Error converting user {user.get('id', 'unknown')} to response format: {e}")
                 # Fallback: include basic fields
@@ -405,14 +389,11 @@ async def create_user(
     try:
         logger.info(f"POST /users called with data: {user_data}")
         
-        # Basic validation
+        # Basic validation using shared utility
         required_fields = ['email', 'phone', 'first_name', 'last_name', 'password', 'role_id']
-        for field in required_fields:
-            if field not in user_data:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Missing required field: {field}"
-                )
+        missing_fields = validate_required_fields(user_data, required_fields)
+        if missing_fields:
+            raise_validation_error(missing_fields)
         
         # Get user repository
         user_repo = get_user_repo()
@@ -431,6 +412,16 @@ async def create_user(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Phone number already exists"
+            )
+        
+        # Validate role_id exists
+        from app.database.firestore import get_role_repo
+        role_repo = get_role_repo()
+        role = await role_repo.get_by_id(user_data['role_id'])
+        if not role:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid role_id: Role does not exist"
             )
         
         # Handle password using unified password handler
@@ -525,7 +516,7 @@ async def update_user(
         await user_endpoint._validate_update_permissions(user, current_user)
         
         # Prepare update data
-        update_dict = update_data.dict(exclude_unset=True)
+        update_dict = update_data.model_dump(exclude_unset=True)
         if not update_dict:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -668,14 +659,6 @@ async def search_users(
 ):
     """Search users by text"""
     try:
-        # Validate permissions using consolidated utility
-        from app.core.generic_utils import validate_user_permissions
-        await validate_user_permissions(
-            current_user,
-            ['user:read', 'user:search'],
-            resource_type='user'
-        )
-        
         users = await user_endpoint.search_users_by_text(q, current_user)
         
         logger.info(f"User search performed: '{q}' - {len(users)} results")

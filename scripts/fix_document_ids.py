@@ -11,6 +11,10 @@ import os
 # Add the parent directory to the path so we can import from app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 from app.database.firestore import (
     workspace_repo, role_repo, permission_repo, user_repo, venue_repo,
     menu_item_repo, menu_category_repo, table_repo, table_area_repo,
@@ -43,11 +47,11 @@ async def fix_all_collections():
     total_checked = 0
     total_fixed = 0
     
-    print("🔧 Starting document ID consistency check across all collections...")
-    print("=" * 70)
+    logger.info("🔧 Starting document ID consistency check across all collections...")
+    logger.info("=" * 70)
     
     for collection_name, repo in repositories:
-        print(f"📋 Checking collection: {collection_name}")
+        logger.info(f"📋 Checking collection: {collection_name}")
         
         try:
             result = await repo.ensure_document_ids_consistency()
@@ -59,22 +63,22 @@ async def fix_all_collections():
             total_fixed += fixed
             
             if fixed > 0:
-                print(f"   ✅ Fixed {fixed} documents out of {checked} checked")
+                logger.info(f"   ✅ Fixed {fixed} documents out of {checked} checked")
             else:
-                print(f"   ✓ All {checked} documents already consistent")
+                logger.info(f"   ✓ All {checked} documents already consistent")
                 
         except Exception as e:
-            print(f"   ❌ Error processing {collection_name}: {e}")
+            logger.info(f"   ❌ Error processing {collection_name}: {e}")
             continue
     
-    print("=" * 70)
-    print(f"🎉 Completed! Total documents checked: {total_checked}")
-    print(f"🔧 Total documents fixed: {total_fixed}")
+    logger.info("=" * 70)
+    logger.info(f"🎉 Completed! Total documents checked: {total_checked}")
+    logger.info(f"🔧 Total documents fixed: {total_fixed}")
     
     if total_fixed > 0:
-        print(f"✅ Successfully ensured all document IDs are consistent with Firestore document IDs")
+        logger.info(f"✅ Successfully ensured all document IDs are consistent with Firestore document IDs")
     else:
-        print(f"✓ All documents were already consistent")
+        logger.info(f"✓ All documents were already consistent")
 
 
 async def check_single_collection(collection_name: str):
@@ -99,13 +103,13 @@ async def check_single_collection(collection_name: str):
     }
     
     if collection_name not in repo_map:
-        print(f"❌ Unknown collection: {collection_name}")
-        print(f"Available collections: {', '.join(repo_map.keys())}")
+        logger.info(f"❌ Unknown collection: {collection_name}")
+        logger.info(f"Available collections: {', '.join(repo_map.keys())}")
         return
     
     repo = repo_map[collection_name]
     
-    print(f"🔧 Checking collection: {collection_name}")
+    logger.info(f"🔧 Checking collection: {collection_name}")
     
     try:
         result = await repo.ensure_document_ids_consistency()
@@ -113,17 +117,17 @@ async def check_single_collection(collection_name: str):
         checked = result["checked"]
         fixed = result["fixed"]
         
-        print(f"📊 Results:")
-        print(f"   - Documents checked: {checked}")
-        print(f"   - Documents fixed: {fixed}")
+        logger.info(f"📊 Results:")
+        logger.info(f"   - Documents checked: {checked}")
+        logger.info(f"   - Documents fixed: {fixed}")
         
         if fixed > 0:
-            print(f"✅ Successfully fixed {fixed} documents")
+            logger.info(f"✅ Successfully fixed {fixed} documents")
         else:
-            print(f"✓ All documents were already consistent")
+            logger.info(f"✓ All documents were already consistent")
             
     except Exception as e:
-        print(f"❌ Error processing {collection_name}: {e}")
+        logger.info(f"❌ Error processing {collection_name}: {e}")
 
 
 def main():

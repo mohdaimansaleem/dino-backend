@@ -10,7 +10,7 @@ from datetime import datetime
 import uuid
 
 from app.core.logging_config import get_logger
-from app.core.security import decode_access_token
+from app.core.security import verify_token
 
 logger = get_logger(__name__)
 
@@ -405,7 +405,7 @@ async def authenticate_websocket_user(token: str) -> Optional[Dict[str, Any]]:
             return None
         
         # Decode JWT token
-        payload = decode_access_token(token)
+        payload = verify_token(token)
         if not payload:
             return None
         

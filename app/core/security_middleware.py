@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting middleware to prevent abuse"""
     
-    def __init__(self, app, calls: int = 60, period: int = 60):
+    def __init__(self, app, calls: int = 300, period: int = 60):
         super().__init__(app)
         self.calls = calls
         self.period = period
@@ -246,7 +246,7 @@ def get_security_middleware_config() -> Dict[str, any]:
     """Get security middleware configuration"""
     return {
         "rate_limit_enabled": True,
-        "rate_limit_calls": getattr(settings, 'RATE_LIMIT_PER_MINUTE', 60),
+        "rate_limit_calls": getattr(settings, 'RATE_LIMIT_PER_MINUTE', 300),
         "rate_limit_period": 60,
         "auth_rate_limit_enabled": True,
         "security_headers_enabled": True,

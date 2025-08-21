@@ -347,3 +347,228 @@ async def get_venue_dashboard(venue_id: str, current_user: Dict[str, Any] = Depe
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to load venue dashboard data"
         )
+
+
+@router.get("/dashboard/comprehensive", response_model=ApiResponse)
+async def get_comprehensive_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Get comprehensive dashboard data for admin users"""
+    logger.info(f"Comprehensive dashboard requested by user: {current_user.get('id')}")
+    
+    # Get user role from role_id
+    from app.core.security import _get_user_role
+    user_role = await _get_user_role(current_user)
+    
+    # Check if user has admin role
+    if user_role not in ["admin", "superadmin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Admin role required."
+        )
+    
+    # Check if user has venue assigned (except for superadmin)
+    venue_id = current_user.get('venue_id')
+    if user_role != "superadmin" and not venue_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No venue assigned. Please contact your administrator to assign you to a venue."
+        )
+    
+    try:
+        # Get comprehensive dashboard data
+        dashboard_data = await _get_dashboard_service().get_venue_dashboard_data(venue_id, current_user)
+        
+        # Transform data to match frontend expectations
+        comprehensive_data = {
+            "venue_name": dashboard_data["venue"]["name"],
+            "venue_id": venue_id,
+            "stats": {
+                "today": {
+                    "orders_count": dashboard_data["summary"]["today_orders"],
+                    "revenue": dashboard_data["summary"]["today_revenue"]
+                },
+                "current": {
+                    "tables_total": dashboard_data["summary"]["total_tables"],
+                    "tables_occupied": dashboard_data["summary"]["occupied_tables"],
+                    "menu_items_total": dashboard_data["summary"]["total_menu_items"],
+                    "menu_items_active": dashboard_data["summary"]["active_menu_items"],
+                    "staff_total": dashboard_data["summary"]["total_staff"]
+                }
+            },
+            "recent_orders": dashboard_data["recent_orders"],
+            "top_menu_items": [],  # Will be populated from analytics
+            "revenue_trend": [],   # Will be populated from analytics
+            "order_status_breakdown": [],  # Will be populated from analytics
+            "table_status_breakdown": []   # Will be populated from analytics
+        }
+        
+        # Add analytics data if available
+        if "analytics" in dashboard_data:
+            analytics = dashboard_data["analytics"]
+            
+            # Transform order status breakdown
+            if "order_status_breakdown" in analytics:
+                comprehensive_data["order_status_breakdown"] = [
+                    {
+                        "status": status,
+                        "count": count,
+                        "color": _get_status_color(status)
+                    }
+                    for status, count in analytics["order_status_breakdown"].items()
+                ]
+            
+            # Transform table status breakdown
+            if "table_status_breakdown" in analytics:
+                comprehensive_data["table_status_breakdown"] = [
+                    {
+                        "status": status,
+                        "count": count,
+                        "color": _get_table_status_color(status)
+                    }
+                    for status, count in analytics["table_status_breakdown"].items()
+                ]
+        
+        return ApiResponse(
+            success=True,
+            message="Comprehensive dashboard data retrieved successfully",
+            data=comprehensive_data
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving comprehensive dashboard data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load comprehensive dashboard data"
+        )
+
+
+def _get_status_color(status: str) -> str:
+    """Get color for order status"""
+    colors = {
+        "pending": "#FFF176",
+        "confirmed": "#FFCC02", 
+        "preparing": "#81D4FA",
+        "ready": "#C8E6C9",
+        "served": "#E1BEE7",
+        "delivered": "#A5D6A7",
+        "cancelled": "#FFAB91"
+    }
+    return colors.get(status.lower(), "#F5F5F5")
+
+
+def _get_table_status_color(status: str) -> str:
+    """Get color for table status"""
+    colors = {
+        "available": "#A5D6A7",
+        "occupied": "#FFAB91",
+        "reserved": "#81D4FA",
+        "maintenance": "#FFCC02"
+    }
+    return colors.get(status.lower(), "#F5F5F5")
+
+
+@router.get("/dashboard/superadmin/comprehensive", response_model=ApiResponse)
+async def get_superadmin_comprehensive_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Get comprehensive dashboard data for superadmin users"""
+    logger.info(f"SuperAdmin comprehensive dashboard requested by user: {current_user.get('id')}")
+    
+    # Get user role from role_id
+    from app.core.security import _get_user_role
+    user_role = await _get_user_role(current_user)
+    
+    # Check if user has superadmin role
+    if user_role != "superadmin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Super admin role required."
+        )
+    
+    try:
+        dashboard_data = await _get_dashboard_service().get_superadmin_dashboard_data(current_user)
+        
+        # Transform data to match frontend expectations
+        comprehensive_data = {
+            "system_stats": {
+                "total_workspaces": dashboard_data["summary"]["total_workspaces"],
+                "total_venues": dashboard_data["summary"]["total_venues"],
+                "total_users": dashboard_data["summary"]["total_users"],
+                "total_orders": dashboard_data["summary"]["total_orders"],
+                "total_revenue": dashboard_data["summary"]["total_revenue"],
+                "active_venues": dashboard_data["summary"]["active_venues"],
+                "total_orders_today": 0,  # Would need to be calculated
+                "total_revenue_today": 0.0  # Would need to be calculated
+            },
+            "workspaces": dashboard_data["workspaces"],
+            "recent_activity": [],  # Could be populated with recent system activity
+            "growth_metrics": {}    # Could be populated with growth data
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="SuperAdmin comprehensive dashboard data retrieved successfully",
+            data=comprehensive_data
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving superadmin comprehensive dashboard data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load superadmin comprehensive dashboard data"
+        )
+
+
+@router.get("/dashboard/operator/comprehensive", response_model=ApiResponse)
+async def get_operator_comprehensive_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Get comprehensive dashboard data for operator users"""
+    logger.info(f"Operator comprehensive dashboard requested by user: {current_user.get('id')}")
+    
+    # Get user role from role_id
+    from app.core.security import _get_user_role
+    user_role = await _get_user_role(current_user)
+    
+    # Check if user has operator role
+    if user_role not in ["operator", "admin", "superadmin"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. Operator role required."
+        )
+    
+    # Check if user has venue assigned (except for superadmin)
+    venue_id = current_user.get('venue_id')
+    if user_role != "superadmin" and not venue_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No venue assigned. Please contact your administrator to assign you to a venue."
+        )
+    
+    try:
+        dashboard_data = await _get_dashboard_service().get_operator_dashboard_data(venue_id, current_user)
+        
+        # Transform data to match frontend expectations
+        comprehensive_data = {
+            "venue_name": "Current Venue",  # Would need venue name from venue data
+            "venue_id": venue_id,
+            "stats": {
+                "active_orders": dashboard_data["summary"]["active_orders"],
+                "pending_orders": dashboard_data["summary"]["pending_orders"],
+                "preparing_orders": dashboard_data["summary"]["preparing_orders"],
+                "ready_orders": dashboard_data["summary"]["ready_orders"],
+                "tables_occupied": dashboard_data["summary"]["occupied_tables"],
+                "tables_total": dashboard_data["summary"]["total_tables"]
+            },
+            "active_orders": dashboard_data["active_orders"],
+            "order_queue": dashboard_data["active_orders"],  # Same as active orders for operators
+            "table_status": {
+                "occupied": dashboard_data["summary"]["occupied_tables"],
+                "available": dashboard_data["summary"]["total_tables"] - dashboard_data["summary"]["occupied_tables"]
+            }
+        }
+        
+        return ApiResponse(
+            success=True,
+            message="Operator comprehensive dashboard data retrieved successfully",
+            data=comprehensive_data
+        )
+    except Exception as e:
+        logger.error(f"Error retrieving operator comprehensive dashboard data: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load operator comprehensive dashboard data"
+        )

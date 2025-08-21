@@ -233,8 +233,7 @@ class VenueWorkspaceListDTO(BaseDTO):
     phone: Optional[str] = None
     email: Optional[str] = None
     is_active: bool
-    is_open: bool = Field(default=False, description="Current operational status")
-    status: VenueStatus
+    is_open: bool = Field(default=False, description="Current operational status - true if status is 'active', false otherwise")
     subscription_status: SubscriptionStatus
     created_at: datetime
     updated_at: datetime

@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     QR_CODE_BASE_URL: str = Field(default="http://localhost:8000", description="Base URL for QR codes")
     DEFAULT_CURRENCY: str = Field(default="INR", description="Default currency")
     PAYMENT_GATEWAY: str = Field(default="razorpay", description="Payment gateway")
-    RATE_LIMIT_PER_MINUTE: int = Field(default=60, description="Rate limit per minute")
+    RATE_LIMIT_PER_MINUTE: int = Field(default=300, description="Rate limit per minute (increased for better UX)")
     
     # =============================================================================
     # CLOUD RUN CONFIGURATION

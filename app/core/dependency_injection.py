@@ -1,235 +1,147 @@
 """
-Dependency Injection Container
-Centralized service management and dependency resolution
+Simplified Dependency Injection Container
+Streamlined service management with essential services only
 """
-from typing import Dict, Any, Type, TypeVar, Optional, Callable
+from typing import Dict, Any, Optional, Callable
 from functools import lru_cache
-import asyncio
-from contextlib import asynccontextmanager
 
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-T = TypeVar('T')
 
-
-class DIContainer:
-    """Dependency injection container for service management"""
+class ServiceContainer:
+    """Simplified service container for essential services"""
     
     def __init__(self):
-        self._services: Dict[str, Any] = {}
-        self._factories: Dict[str, Callable] = {}
         self._singletons: Dict[str, Any] = {}
-        self._scoped: Dict[str, Any] = {}
+        self._factories: Dict[str, Callable] = {}
         
-    def register_singleton(self, service_type: Type[T], factory: Callable[[], T]) -> None:
+    def register_singleton(self, name: str, factory: Callable) -> None:
         """Register a singleton service"""
-        service_name = service_type.__name__
-        self._factories[service_name] = factory
-        logger.debug(f"Registered singleton: {service_name}")
+        self._factories[name] = factory
+        logger.debug(f"Registered singleton: {name}")
     
-    def register_transient(self, service_type: Type[T], factory: Callable[[], T]) -> None:
-        """Register a transient service (new instance each time)"""
-        service_name = service_type.__name__
-        self._services[service_name] = factory
-        logger.debug(f"Registered transient: {service_name}")
-    
-    def register_scoped(self, service_type: Type[T], factory: Callable[[], T]) -> None:
-        """Register a scoped service (one instance per scope)"""
-        service_name = service_type.__name__
-        self._scoped[service_name] = factory
-        logger.debug(f"Registered scoped: {service_name}")
-    
-    def get_service(self, service_type: Type[T]) -> T:
+    def get_service(self, name: str) -> Any:
         """Get service instance"""
-        service_name = service_type.__name__
+        if name not in self._factories:
+            raise ValueError(f"Service {name} not registered")
         
-        # Check singletons first
-        if service_name in self._factories:
-            if service_name not in self._singletons:
-                self._singletons[service_name] = self._factories[service_name]()
-            return self._singletons[service_name]
+        if name not in self._singletons:
+            self._singletons[name] = self._factories[name]()
+            logger.debug(f"Created singleton instance: {name}")
         
-        # Check transient services
-        if service_name in self._services:
-            return self._services[service_name]()
-        
-        # Check scoped services
-        if service_name in self._scoped:
-            scope_key = f"scope_{asyncio.current_task()}"
-            if scope_key not in self._scoped:
-                self._scoped[scope_key] = {}
-            
-            if service_name not in self._scoped[scope_key]:
-                self._scoped[scope_key][service_name] = self._scoped[service_name]()
-            
-            return self._scoped[scope_key][service_name]
-        
-        raise ValueError(f"Service {service_name} not registered")
-    
-    def clear_scope(self) -> None:
-        """Clear scoped services for current task"""
-        scope_key = f"scope_{asyncio.current_task()}"
-        if scope_key in self._scoped:
-            del self._scoped[scope_key]
+        return self._singletons[name]
     
     def get_all_services(self) -> Dict[str, str]:
         """Get list of all registered services"""
         return {
-            "singletons": list(self._factories.keys()),
-            "transients": list(self._services.keys()),
-            "scoped": list(self._scoped.keys())
+            "registered": list(self._factories.keys()),
+            "instantiated": list(self._singletons.keys())
         }
 
 
-# Global DI container
-container = DIContainer()
+# Global service container
+container = ServiceContainer()
 
 
-def register_services():
-    """Register all application services"""
+def register_core_services():
+    """Register essential application services"""
     
-    # Repository Manager (Singleton)
+    # Repository Manager
     def create_repository_manager():
         from app.database.repository_manager import RepositoryManager
         return RepositoryManager()
     
-    container.register_singleton(
-        type("RepositoryManager", (), {}),
-        create_repository_manager
-    )
+    container.register_singleton("repository_manager", create_repository_manager)
     
-    # Auth Service (Singleton)
+    # Auth Service
     def create_auth_service():
         from app.services.auth_service import AuthService
         return AuthService()
     
-    container.register_singleton(
-        type("AuthService", (), {}),
-        create_auth_service
-    )
+    container.register_singleton("auth_service", create_auth_service)
     
-    # Validation Service (Singleton)
+    # Validation Service
     def create_validation_service():
         from app.services.validation_service import ValidationService
         return ValidationService()
     
-    container.register_singleton(
-        type("ValidationService", (), {}),
-        create_validation_service
-    )
+    container.register_singleton("validation_service", create_validation_service)
     
-    # Role Permission Service (Singleton)
+    # Role Permission Service
     def create_role_permission_service():
         from app.services.role_permission_service import RolePermissionService
         return RolePermissionService()
     
-    container.register_singleton(
-        type("RolePermissionService", (), {}),
-        create_role_permission_service
-    )
+    container.register_singleton("role_permission_service", create_role_permission_service)
     
-    # Workspace Onboarding Service (Transient)
-    def create_workspace_service():
-        from app.services.workspace_onboarding_service import WorkspaceOnboardingService
-        return WorkspaceOnboardingService()
-    
-    container.register_transient(
-        type("WorkspaceOnboardingService", (), {}),
-        create_workspace_service
-    )
-    
-    logger.info("All services registered in DI container")
+    logger.info("Core services registered successfully")
 
 
 # Service accessor functions
 @lru_cache(maxsize=1)
 def get_repository_manager():
     """Get repository manager instance"""
-    return container.get_service(type("RepositoryManager", (), {}))
+    return container.get_service("repository_manager")
 
 
 @lru_cache(maxsize=1)
 def get_auth_service():
     """Get auth service instance"""
-    return container.get_service(type("AuthService", (), {}))
+    return container.get_service("auth_service")
 
 
 @lru_cache(maxsize=1)
 def get_validation_service():
     """Get validation service instance"""
-    return container.get_service(type("ValidationService", (), {}))
+    return container.get_service("validation_service")
 
 
 @lru_cache(maxsize=1)
 def get_role_permission_service():
     """Get role permission service instance"""
-    return container.get_service(type("RolePermissionService", (), {}))
+    return container.get_service("role_permission_service")
 
 
-def get_workspace_service():
-    """Get workspace onboarding service instance (transient)"""
-    return container.get_service(type("WorkspaceOnboardingService", (), {}))
-
-
-# Context manager for scoped services
-@asynccontextmanager
-async def service_scope():
-    """Context manager for scoped services"""
-    try:
-        yield container
-    finally:
-        container.clear_scope()
-
-
-# Dependency injection for FastAPI
-def get_container() -> DIContainer:
-    """FastAPI dependency to get DI container"""
+def get_container() -> ServiceContainer:
+    """Get service container"""
     return container
 
 
-# Initialize services on module import
 def initialize_di():
     """Initialize dependency injection container"""
     try:
-        register_services()
-        logger.info("Dependency injection container initialized successfully")
+        register_core_services()
+        logger.info("Dependency injection initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize DI container: {e}")
         raise
 
 
-# Service health check
 def check_services_health() -> Dict[str, Any]:
     """Check health of all registered services"""
     health_status = {
         "container_status": "healthy",
-        "services": container.get_all_services(),
-        "total_services": 0
+        "services": container.get_all_services()
     }
     
     try:
-        services = container.get_all_services()
-        health_status["total_services"] = (
-            len(services["singletons"]) + 
-            len(services["transients"]) + 
-            len(services["scoped"])
-        )
-        
         # Test key services
-        try:
-            repo_manager = get_repository_manager()
-            health_status["repository_manager"] = "healthy"
-        except Exception as e:
-            health_status["repository_manager"] = f"error: {str(e)}"
+        services_to_test = [
+            ("repository_manager", get_repository_manager),
+            ("auth_service", get_auth_service),
+            ("validation_service", get_validation_service),
+            ("role_permission_service", get_role_permission_service)
+        ]
         
-        try:
-            auth_service = get_auth_service()
-            health_status["auth_service"] = "healthy"
-        except Exception as e:
-            health_status["auth_service"] = f"error: {str(e)}"
-            
+        for service_name, service_getter in services_to_test:
+            try:
+                service_getter()
+                health_status[service_name] = "healthy"
+            except Exception as e:
+                health_status[service_name] = f"error: {str(e)}"
+                
     except Exception as e:
         health_status["container_status"] = f"error: {str(e)}"
     

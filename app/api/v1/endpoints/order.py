@@ -4,7 +4,7 @@ Complete CRUD for orders with lifecycle management and real-time updates
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 
 from app.models.schemas import Order, OrderStatus, PaymentStatus, OrderType
@@ -76,7 +76,7 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
     
     def _generate_order_number(self) -> str:
         """Generate unique order number"""
-        timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M")
         random_suffix = str(uuid.uuid4())[:6].upper()
         return f"ORD-{timestamp}-{random_suffix}"
     
@@ -223,7 +223,7 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
         
         # Set ready time if status is READY
         if new_status == OrderStatus.READY:
-            update_data["actual_ready_time"] = datetime.utcnow()
+            update_data["actual_ready_time"] = datetime.now(timezone.utc)
         
         await repo.update(order_id, update_data)
         
@@ -324,7 +324,7 @@ class OrdersEndpoint(WorkspaceIsolatedEndpoint[Order, OrderCreateDTO, OrderUpdat
         
         # Set default date range (last 30 days)
         if not end_date:
-            end_date = datetime.utcnow()
+            end_date = datetime.now(timezone.utc)
         if not start_date:
             start_date = end_date - timedelta(days=30)
         
@@ -500,7 +500,7 @@ async def confirm_order(
         if success and estimated_minutes:
             # Set estimated ready time
             repo = get_repository_manager().get_repository('order')
-            estimated_ready_time = datetime.utcnow() + timedelta(minutes=estimated_minutes)
+            estimated_ready_time = datetime.now(timezone.utc) + timedelta(minutes=estimated_minutes)
             await repo.update(order_id, {"estimated_ready_time": estimated_ready_time})
         
         return ApiResponseDTO(
@@ -569,7 +569,22 @@ async def get_venue_orders(
     """Get all orders for a venue"""
     try:
         # Validate venue access
-        await orders_endpoint._validate_venue_access(venue_id, current_user)
+        if hasattr(orders_endpoint, '_validate_venue_access'):
+            await orders_endpoint._validate_venue_access(venue_id, current_user)
+        else:
+            # Fallback validation
+            venue_repo = get_repository_manager().get_repository('venue')
+            venue = await venue_repo.get_by_id(venue_id)
+            if not venue:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Venue not found"
+                )
+            if not venue.get('is_active', False):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Venue is not active"
+                )
         
         repo = get_repository_manager().get_repository('order')
         
@@ -600,8 +615,8 @@ async def get_venue_orders(
                 "estimated_ready_time": order.get('estimated_ready_time'),
                 "actual_ready_time": order.get('actual_ready_time'),
                 "special_instructions": order.get('special_instructions'),
-                "created_at": order.get('created_at', datetime.utcnow()),
-                "updated_at": order.get('updated_at', datetime.utcnow()),
+                "created_at": order.get('created_at', datetime.now(timezone.utc)),
+                "updated_at": order.get('updated_at', datetime.now(timezone.utc)),
             }
             
             # Process items to ensure they have required fields
@@ -679,7 +694,22 @@ async def get_live_order_status(
     """Get live order status for venue dashboard"""
     try:
         # Validate venue access
-        await orders_endpoint._validate_venue_access(venue_id, current_user)
+        if hasattr(orders_endpoint, '_validate_venue_access'):
+            await orders_endpoint._validate_venue_access(venue_id, current_user)
+        else:
+            # Fallback validation
+            venue_repo = get_repository_manager().get_repository('venue')
+            venue = await venue_repo.get_by_id(venue_id)
+            if not venue:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Venue not found"
+                )
+            if not venue.get('is_active', False):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Venue is not active"
+                )
         
         repo = get_repository_manager().get_repository('order')
         
@@ -714,7 +744,7 @@ async def get_live_order_status(
         
         return {
             "venue_id": venue_id,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "summary": {
                 "total_active_orders": total_active,
                 "pending_orders": pending_count,
@@ -879,20 +909,37 @@ async def create_public_order(order_data: Dict[str, Any]):
     - Updates table status if applicable
     """
     try:
+        logger.info(f"Public order creation request received: venue_id={order_data.get('venue_id')}, items_count={len(order_data.get('items', []))}")
+        
         from app.services.public_ordering_service import public_ordering_service
+        
+        # Validate required fields
+        if not order_data.get('venue_id'):
+            logger.error("Missing venue_id in order data")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue ID is required"
+            )
+        
+        if not order_data.get('items'):
+            logger.error("Missing items in order data")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Order must contain at least one item"
+            )
         
         order_response = await public_ordering_service.create_public_order(order_data)
         
-        logger.info(f"Public order created: {order_response['order_id']}")
+        logger.info(f"Public order created successfully: {order_response.get('order_id')} for venue: {order_data.get('venue_id')}")
         return order_response
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Public order creation error: {e}")
+        logger.error(f"Public order creation error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create order"
+            detail=f"Failed to create order: {str(e)}"
         )
 
 
@@ -1046,7 +1093,7 @@ async def submit_order_feedback(
         await order_repo.update(order_id, {
             "customer_rating": rating,
             "customer_feedback": feedback,
-            "feedback_date": datetime.utcnow()
+            "feedback_date": datetime.now(timezone.utc)
         })
         
         logger.info(f"Feedback submitted for order: {order_id} - rating: {rating}")

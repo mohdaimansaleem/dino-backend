@@ -279,7 +279,15 @@ class PublicOrderingService:
             
             # Save order to database
             order_repo = self.repo_manager.get_repository('order')
-            created_order = await order_repo.create(order_record, doc_id=order_id)
+            try:
+                created_order = await order_repo.create(order_record, doc_id=order_id)
+                logger.info(f"Order successfully saved to database: {order_id}")
+            except Exception as db_error:
+                logger.error(f"Failed to save order to database: {db_error}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Failed to save order to database"
+                )
             
             # Update table status if applicable
             if order_data.get('table_id'):

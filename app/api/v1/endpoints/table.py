@@ -4,7 +4,7 @@ Complete CRUD for tables with QR code generation and status management
 """
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status, Depends, Query
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import base64
 import json
@@ -109,7 +109,7 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
                 table_id=qr_data.get('table_id', ''),
                 table_number=qr_data['table_number'],
                 encrypted_token=qr_code,
-                generated_at=datetime.utcnow()
+                generated_at=datetime.now(timezone.utc)
             )
             
         except Exception:
@@ -140,6 +140,17 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Table number {table_number} already exists in this venue"
                 )
+    
+    async def _validate_access_permissions(self, 
+                                         item: Dict[str, Any], 
+                                         current_user: Optional[Dict[str, Any]]):
+        """Override to allow public access for table information"""
+        # Allow public access for table information (QR code scanning)
+        if current_user is None:
+            return
+        
+        # For authenticated users, use normal workspace validation
+        await super()._validate_access_permissions(item, current_user)
     
     async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
@@ -264,12 +275,57 @@ async def get_tables(
     if is_active is not None:
         filters['is_active'] = is_active
     
-    return await tables_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        filters=filters,
-        current_user=current_user
-    )
+    try:
+        result = await tables_endpoint.get_items(
+            page=page,
+            page_size=page_size,
+            filters=filters,
+            current_user=current_user
+        )
+        return result
+    except Exception as e:
+        logger.error(f"Error getting tables list: {e}")
+        # If it's a validation error, try to fix the data
+        if "validation error" in str(e).lower() and "table_status" in str(e).lower():
+            logger.info("Attempting to fix table status validation issues...")
+            # Get repository and fix data
+            repo = get_table_repo()
+            try:
+                # Get all tables and fix status issues
+                all_tables = await repo.get_all()
+                fixes_applied = 0
+                
+                for table in all_tables:
+                    table_id = table.get('id')
+                    current_status = table.get('table_status')
+                    
+                    # Fix misspelled status
+                    if current_status == 'maintence':
+                        await repo.update(table_id, {'table_status': 'maintenance'})
+                        fixes_applied += 1
+                        logger.info(f"Fixed table {table.get('table_number')}: maintence → maintenance")
+                    elif current_status not in [status.value for status in TableStatus]:
+                        await repo.update(table_id, {'table_status': 'available'})
+                        fixes_applied += 1
+                        logger.info(f"Fixed table {table.get('table_number')}: {current_status} → available")
+                
+                if fixes_applied > 0:
+                    logger.info(f"Applied {fixes_applied} table status fixes, retrying request...")
+                    # Retry the request
+                    return await tables_endpoint.get_items(
+                        page=page,
+                        page_size=page_size,
+                        filters=filters,
+                        current_user=current_user
+                    )
+                
+            except Exception as fix_error:
+                logger.error(f"Failed to fix table status data: {fix_error}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get tables list: {str(e)}"
+        )
 
 
 @router.post("", 
@@ -287,14 +343,14 @@ async def create_table(
 
 @router.get("/{table_id}", 
             response_model=TableResponseDTO,
-            summary="Get table by ID",
-            description="Get specific table by ID")
+            summary="Get table by ID (Public)",
+            description="Get specific table by ID - Public endpoint for QR code access")
 async def get_table(
-    table_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+    table_id: str
 ):
-    """Get table by ID"""
-    return await tables_endpoint.get_item(table_id, current_user)
+    """Get table by ID - Public endpoint for QR code scanning"""
+    # Public endpoint - no authentication required for QR code access
+    return await tables_endpoint.get_item(table_id, current_user=None)
 
 
 @router.put("/{table_id}", 
@@ -340,6 +396,13 @@ async def update_table_status(
 ):
     """Update table status"""
     try:
+        # Validate request body
+        if not status_update or not hasattr(status_update, 'new_status'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request body with 'new_status' field is required"
+            )
+        
         success = await tables_endpoint.update_table_status(table_id, status_update.new_status, current_user)
         
         if success:
@@ -434,7 +497,7 @@ async def free_table(
 
 
 # =============================================================================
-# QR CODE ENDPOINTS
+# QR CODE MANAGEMENT AND PREVIEW ENDPOINTS
 # =============================================================================
 
 @router.get("/{table_id}/qr-code", 
@@ -517,13 +580,12 @@ async def regenerate_table_qr_code(
 
 @router.post("/verify-qr", 
              response_model=Dict[str, Any],
-             summary="Verify QR code",
-             description="Verify and decode table QR code")
+             summary="Verify QR code (Public)",
+             description="Verify and decode table QR code - Public endpoint")
 async def verify_qr_code(
-    qr_code: str,
-    current_user: Optional[Dict[str, Any]] = Depends(get_current_user)
+    qr_code: str
 ):
-    """Verify QR code and return table information"""
+    """Verify QR code and return table information - Public endpoint"""
     try:
         # Decode QR code
         qr_data = tables_endpoint._verify_qr_code(qr_code)
@@ -534,7 +596,7 @@ async def verify_qr_code(
                 detail="Invalid QR code"
             )
         
-        # Get table information
+        # Get table information (public access)
         table = await tables_endpoint.get_table_by_qr_code(qr_code)
         
         if not table:
@@ -582,6 +644,67 @@ async def verify_qr_code(
 
 
 # =============================================================================
+# PUBLIC TABLE ACCESS ENDPOINTS (for QR codes)
+# =============================================================================
+
+@router.get("/public/{table_id}", 
+            response_model=Dict[str, Any],
+            summary="Get table info (Public)",
+            description="Get table information for public access via QR codes")
+async def get_table_public(
+    table_id: str
+):
+    """Get table information for public access (QR code scanning)"""
+    try:
+        repo = get_table_repo()
+        table_data = await repo.get_by_id(table_id)
+        
+        if not table_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table not found"
+            )
+        
+        # Get venue information
+        from app.database.firestore import get_venue_repo
+        venue_repo = get_venue_repo()
+        venue = await venue_repo.get_by_id(table_data['venue_id'])
+        
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        # Return public table information
+        return {
+            "table": {
+                "id": table_data["id"],
+                "table_number": table_data["table_number"],
+                "capacity": table_data.get("capacity", 4),
+                "location": table_data.get("location"),
+                "status": table_data.get("table_status", "available"),
+                "qr_code": table_data.get("qr_code")
+            },
+            "venue": {
+                "id": venue["id"],
+                "name": venue["name"],
+                "description": venue.get("description"),
+                "is_active": venue.get("is_active", False)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting public table info: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get table information"
+        )
+
+
+# =============================================================================
 # VENUE TABLE ENDPOINTS
 # =============================================================================
 
@@ -612,7 +735,33 @@ async def get_venue_tables(
         if user_role not in ['admin', 'superadmin']:
             tables_data = [table for table in tables_data if table.get('is_active', False)]
         
-        tables = [TableResponseDTO(**table) for table in tables_data]
+        # Fix legacy table status data before validation
+        processed_tables = []
+        for table in tables_data:
+            # Fix misspelled 'maintence' to 'maintenance'
+            if table.get('table_status') == 'maintence':
+                table['table_status'] = 'maintenance'
+                # Update in database
+                try:
+                    await repo.update(table['id'], {'table_status': 'maintenance'})
+                    logger.info(f"Fixed table status for table {table.get('table_number')}: maintence → maintenance")
+                except Exception as e:
+                    logger.error(f"Failed to fix table status for table {table['id']}: {e}")
+            
+            # Ensure table_status is valid, default to 'available' if invalid
+            valid_statuses = [status.value for status in TableStatus]
+            if table.get('table_status') not in valid_statuses:
+                logger.warning(f"Invalid table status '{table.get('table_status')}' for table {table.get('table_number')}, defaulting to 'available'")
+                table['table_status'] = 'available'
+                # Update in database
+                try:
+                    await repo.update(table['id'], {'table_status': 'available'})
+                except Exception as e:
+                    logger.error(f"Failed to fix table status for table {table['id']}: {e}")
+            
+            processed_tables.append(table)
+        
+        tables = [TableResponseDTO(**table) for table in processed_tables]
         
         logger.info(f"Retrieved {len(tables)} tables for venue: {venue_id}")
         return tables
