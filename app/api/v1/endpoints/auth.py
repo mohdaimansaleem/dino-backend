@@ -1159,3 +1159,4 @@ async def debug_user_role(current_user: Dict[str, Any] = Depends(get_current_use
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"User role debug failed: {str(e)}"
         )
+
