@@ -5052,6 +5052,11 @@ async def bulk_update_item_availability(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Menu item {item_id} not found"
                 )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong"
+        )
 
 
 @router.post("/items/{item_id}/image", 
