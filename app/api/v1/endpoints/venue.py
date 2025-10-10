@@ -1195,7 +1195,7 @@ async def create_venue(
 
 
 
-@router.get("/my-venues", 
+'''@router.get("/my-venues", 
 
       response_model=List[VenueResponseDTO],
 
@@ -1207,7 +1207,7 @@ async def get_my_venues(current_user: Dict[str, Any] = Depends(get_current_admin
 
   """Get current user's venues"""
 
-  try:
+  try:'''
 
 
 @router.put("/{venue_id}", 
