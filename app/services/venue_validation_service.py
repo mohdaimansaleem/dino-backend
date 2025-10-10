@@ -204,26 +204,21 @@ class VenueValidationService:
             
             # Check if venue is active
             is_active = venue.get('is_active', False)
-            is_open = venue.get('is_open', False)
             venue_status = venue.get('status', VenueStatus.ACTIVE.value)
             
             # Venue is operational if it's active, open, and has active status
             is_operational = (
                 is_active and 
-                is_open and 
                 venue_status == VenueStatus.ACTIVE.value
             )
             
             if not is_operational:
                 return {
-                    'current_status': 'closed',
-                    'is_open': False,
                     'message': 'Venue is currently not accepting orders',
                     'error_type': 'venue_not_operational',
                     'venue_name': venue.get('name', 'Unknown Venue'),
                     'venue_status': venue_status,
-                    'is_active': is_active,
-                    'is_open': is_open
+                    'is_active': is_active
                 }
             
             return {

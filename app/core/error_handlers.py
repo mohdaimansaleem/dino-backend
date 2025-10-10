@@ -1,13 +1,24 @@
 """
+
 Centralized Error Handling
+
 Consistent error responses and logging across the application
+
 """
+
 from typing import Dict, Any, Optional
+
 from fastapi import HTTPException, Request, status
+
 from fastapi.responses import JSONResponse
+
 from fastapi.exceptions import RequestValidationError
+
 from pydantic import ValidationError
+
 import traceback
+
+
 
 from app.core.logging_config import get_logger
 from app.models.dto import ErrorResponseDTO
@@ -15,21 +26,41 @@ from app.models.dto import ErrorResponseDTO
 logger = get_logger(__name__)
 
 
+
+
+
 class APIError(Exception):
-    """Custom API error with structured information"""
-    
-    def __init__(
-        self, 
-        message: str, 
-        status_code: int = 500, 
-        error_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
-    ):
-        self.message = message
-        self.status_code = status_code
-        self.error_code = error_code
-        self.details = details or {}
-        super().__init__(message)
+
+  """Custom API error with structured information"""
+
+   
+
+  def __init__(
+
+    self, 
+
+    message: str, 
+
+    status_code: int = 500, 
+
+    error_code: Optional[str] = None,
+
+    details: Optional[Dict[str, Any]] = None
+
+  ):
+
+    self.message = message
+
+    self.status_code = status_code
+
+    self.error_code = error_code
+
+    self.details = details or {}
+
+    super().__init__(message)
+
+
+
 
 
 class ErrorHandler:
@@ -83,10 +114,15 @@ class ErrorHandler:
 
 
 # Global error handler instance
+
 error_handler = ErrorHandler()
 
 
+
+
+
 # Exception handlers for FastAPI
+
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Handle HTTP exceptions"""
     error_handler.log_error(exc, request)
@@ -176,59 +212,115 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 
 # Common error responses
+
 class CommonErrors:
-    """Common error responses for reuse"""
-    
-    @staticmethod
-    def not_found(resource: str = "Resource") -> APIError:
-        return APIError(
-            message=f"{resource} not found",
-            status_code=status.HTTP_404_NOT_FOUND,
-            error_code="NOT_FOUND"
-        )
-    
-    @staticmethod
-    def unauthorized() -> APIError:
-        return APIError(
-            message="Authentication required",
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            error_code="UNAUTHORIZED"
-        )
-    
-    @staticmethod
-    def forbidden(message: str = "Access denied") -> APIError:
-        return APIError(
-            message=message,
-            status_code=status.HTTP_403_FORBIDDEN,
-            error_code="FORBIDDEN"
-        )
-    
-    @staticmethod
-    def bad_request(message: str = "Bad request") -> APIError:
-        return APIError(
-            message=message,
-            status_code=status.HTTP_400_BAD_REQUEST,
-            error_code="BAD_REQUEST"
-        )
-    
-    @staticmethod
-    def conflict(message: str = "Resource already exists") -> APIError:
-        return APIError(
-            message=message,
-            status_code=status.HTTP_409_CONFLICT,
-            error_code="CONFLICT"
-        )
-    
-    @staticmethod
-    def validation_error(message: str = "Validation failed", details: Optional[Dict] = None) -> APIError:
-        return APIError(
-            message=message,
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            error_code="VALIDATION_ERROR",
-            details=details
-        )
+
+  """Common error responses for reuse"""
+
+   
+
+  @staticmethod
+
+  def not_found(resource: str = "Resource") -> APIError:
+
+    return APIError(
+
+      message=f"{resource} not found",
+
+      status_code=status.HTTP_404_NOT_FOUND,
+
+      error_code="NOT_FOUND"
+
+    )
+
+   
+
+  @staticmethod
+
+  def unauthorized() -> APIError:
+
+    return APIError(
+
+      message="Authentication required",
+
+      status_code=status.HTTP_401_UNAUTHORIZED,
+
+      error_code="UNAUTHORIZED"
+
+    )
+
+   
+
+  @staticmethod
+
+  def forbidden(message: str = "Access denied") -> APIError:
+
+    return APIError(
+
+      message=message,
+
+      status_code=status.HTTP_403_FORBIDDEN,
+
+      error_code="FORBIDDEN"
+
+    )
+
+   
+
+  @staticmethod
+
+  def bad_request(message: str = "Bad request") -> APIError:
+
+    return APIError(
+
+      message=message,
+
+      status_code=status.HTTP_400_BAD_REQUEST,
+
+      error_code="BAD_REQUEST"
+
+    )
+
+   
+
+  @staticmethod
+
+  def conflict(message: str = "Resource already exists") -> APIError:
+
+    return APIError(
+
+      message=message,
+
+      status_code=status.HTTP_409_CONFLICT,
+
+      error_code="CONFLICT"
+
+    )
+
+   
+
+  @staticmethod
+
+  def validation_error(message: str = "Validation failed", details: Optional[Dict] = None) -> APIError:
+
+    return APIError(
+
+      message=message,
+
+      status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+
+      error_code="VALIDATION_ERROR",
+
+      details=details
+
+    )
+
+
+
 
 
 def get_error_handler() -> ErrorHandler:
-    """Get error handler instance"""
-    return error_handler
+
+  """Get error handler instance"""
+
+  return error_handler
