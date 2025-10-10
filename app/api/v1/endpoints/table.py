@@ -216,218 +216,163 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
         if table_data:
             return Table(**table_data)
         return None
-
-       
-
-      qr_encoded, qr_hash = parts
-
-       
-
-      # Decode data
-
-      qr_bytes = base64.b64decode(qr_encoded.encode('utf-8'))
-
-       
-
-      # Verify hash
-
-      hash_object = hashlib.sha256(qr_bytes)
-
-      expected_hash = hash_object.hexdigest()[:16]
-
-       
-
-      if qr_hash != expected_hash:
-
-        return None
-
-       
-
-      # Parse JSON
-
-      qr_json = qr_bytes.decode('utf-8')
-
-      qr_data = json.loads(qr_json)
-
-       
-
-      return QRCodeDataDTO(
-
-        venue_id=qr_data['venue_id'],
-
-        table_id=qr_data.get('table_id', ''),
-
-        table_number=qr_data['table_number'],
-
-        encrypted_token=qr_code,
-
-        generated_at=datetime.now(timezone.utc)
-
-      )
-
-       
-
-    except Exception:
-
-      return None
-
    
 
-  async def _validate_create_permissions(self, 
+    async def _validate_create_permissions(self, 
 
                      data: Dict[str, Any], 
 
                      current_user: Optional[Dict[str, Any]]):
 
-    """Validate table creation permissions"""
+      """Validate table creation permissions"""
 
-    if not current_user:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_401_UNAUTHORIZED,
-
-        detail="Authentication required"
-
-      )
-
-     
-
-    # Validate venue access
-
-    venue_id = data.get('venue_id')
-
-    if venue_id:
-
-      await self._validate_venue_access(venue_id, current_user)
-
-     
-
-    # Check for duplicate table number in venue
-
-    table_number = data.get('table_number')
-
-    if venue_id and table_number:
-
-      repo = self.get_repository()
-
-      existing_table = await repo.get_by_table_number(venue_id, table_number)
-
-      if existing_table:
+      if not current_user:
 
         raise HTTPException(
 
-          status_code=status.HTTP_400_BAD_REQUEST,
+          status_code=status.HTTP_401_UNAUTHORIZED,
 
-          detail=f"Table number {table_number} already exists in this venue"
+          detail="Authentication required"
 
         )
 
+      
+
+      # Validate venue access
+
+      venue_id = data.get('venue_id')
+
+      if venue_id:
+
+        await self._validate_venue_access(venue_id, current_user)
+
+      
+
+      # Check for duplicate table number in venue
+
+      table_number = data.get('table_number')
+
+      if venue_id and table_number:
+
+        repo = self.get_repository()
+
+        existing_table = await repo.get_by_table_number(venue_id, table_number)
+
+        if existing_table:
+
+          raise HTTPException(
+
+            status_code=status.HTTP_400_BAD_REQUEST,
+
+            detail=f"Table number {table_number} already exists in this venue"
+
+          )
+
    
 
-  async def _validate_access_permissions(self, 
+    async def _validate_access_permissions(self, 
 
                      item: Dict[str, Any], 
 
                      current_user: Optional[Dict[str, Any]]):
 
-    """Override to allow public access for table information"""
+      """Override to allow public access for table information"""
 
-    # Allow public access for table information (QR code scanning)
+      # Allow public access for table information (QR code scanning)
 
-    if current_user is None:
+      if current_user is None:
 
-      return
+        return
 
-     
+      
 
-    # For authenticated users, use normal workspace validation
+      # For authenticated users, use normal workspace validation
 
-    await super()._validate_access_permissions(item, current_user)
-
-   
-
-  async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
-
-    """Validate user has access to the venue"""
-
-    from app.database.firestore import get_venue_repo
-
-    from app.core.security import _get_user_role
-
-     
-
-    venue_repo = get_venue_repo()
-
-     
-
-    venue = await venue_repo.get_by_id(venue_id)
-
-    if not venue:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_404_NOT_FOUND,
-
-        detail="Venue not found"
-
-      )
-
-     
-
-    # Get the actual role name from role_id
-
-    user_role = await _get_user_role(current_user)
-
-     
-
-    # SuperAdmin and Admin have access to all venues
-
-    if user_role in ['superadmin', 'admin']:
-
-      return
-
-     
-
-    # For other roles, check workspace access
-
-    user_workspace_id = current_user.get('workspace_id')
-
-    venue_workspace_id = venue.get('workspace_id')
-
-     
-
-    if user_workspace_id != venue_workspace_id:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_403_FORBIDDEN,
-
-        detail="Access denied: Venue belongs to different workspace"
-
-      )
+      await super()._validate_access_permissions(item, current_user)
 
    
 
-  async def get_table_by_qr_code(self, qr_code: str) -> Optional[Table]:
+    async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
 
-    """Get table by QR code"""
+      """Validate user has access to the venue"""
 
-    repo = self.get_repository()
+      from app.database.firestore import get_venue_repo
 
-    table_data = await repo.get_by_qr_code(qr_code)
+      from app.core.security import _get_user_role
 
-     
+      
 
-    if table_data:
+      venue_repo = get_venue_repo()
 
-      return Table(**table_data)
+      
 
-    return None
+      venue = await venue_repo.get_by_id(venue_id)
+
+      if not venue:
+
+        raise HTTPException(
+
+          status_code=status.HTTP_404_NOT_FOUND,
+
+          detail="Venue not found"
+
+        )
+
+      
+
+      # Get the actual role name from role_id
+
+      user_role = await _get_user_role(current_user)
+
+      
+
+      # SuperAdmin and Admin have access to all venues
+
+      if user_role in ['superadmin', 'admin']:
+
+        return
+
+      
+
+      # For other roles, check workspace access
+
+      user_workspace_id = current_user.get('workspace_id')
+
+      venue_workspace_id = venue.get('workspace_id')
+
+      
+
+      if user_workspace_id != venue_workspace_id:
+
+        raise HTTPException(
+
+          status_code=status.HTTP_403_FORBIDDEN,
+
+          detail="Access denied: Venue belongs to different workspace"
+
+        )
 
    
 
-  async def update_table_status(self, 
+    async def get_table_by_qr_code(self, qr_code: str) -> Optional[Table]:
+
+        """Get table by QR code"""
+
+        repo = self.get_repository()
+
+        table_data = await repo.get_by_qr_code(qr_code)
+
+        
+
+        if table_data:
+
+          return Table(**table_data)
+
+        return None
+
+   
+
+    async def update_table_status(self, 
 
                 table_id: str,
 
@@ -435,101 +380,101 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
 
                 current_user: Dict[str, Any]) -> bool:
 
-    """Update table status"""
+      """Update table status"""
 
-    repo = self.get_repository()
+      repo = self.get_repository()
 
-     
+      
 
-    # Validate table exists and user has access
+      # Validate table exists and user has access
 
-    table_data = await repo.get_by_id(table_id)
+      table_data = await repo.get_by_id(table_id)
 
-    if not table_data:
+      if not table_data:
 
-      raise HTTPException(
+        raise HTTPException(
 
-        status_code=status.HTTP_404_NOT_FOUND,
+          status_code=status.HTTP_404_NOT_FOUND,
 
-        detail="Table not found"
+          detail="Table not found"
 
-      )
+        )
 
-     
+      
 
-    await self._validate_access_permissions(table_data, current_user)
+      await self._validate_access_permissions(table_data, current_user)
 
-     
+      
 
-    # Update status
+      # Update status
 
-    await repo.update(table_id, {"table_status": new_status.value})
+      await repo.update(table_id, {"table_status": new_status.value})
 
-     
+      
 
-    logger.info(f"Table status updated: {table_id} -> {new_status.value}")
+      logger.info(f"Table status updated: {table_id} -> {new_status.value}")
 
-    return True
+      return True
 
    
 
-  async def get_venue_table_statistics(self, 
+    async def get_venue_table_statistics(self, 
 
                    venue_id: str,
 
                    current_user: Dict[str, Any]) -> Dict[str, Any]:
 
-    """Get table statistics for a venue"""
+      """Get table statistics for a venue"""
 
-    # Validate venue access
+      # Validate venue access
 
-    await self._validate_venue_access(venue_id, current_user)
+      await self._validate_venue_access(venue_id, current_user)
 
-     
+      
 
-    repo = self.get_repository()
+      repo = self.get_repository()
 
-    tables = await repo.get_by_venue(venue_id)
+      tables = await repo.get_by_venue(venue_id)
 
-     
+      
 
-    # Count by status
+      # Count by status
 
-    status_counts = {}
+      status_counts = {}
 
-    for status in TableStatus:
+      for status in TableStatus:
 
-      status_counts[status.value] = 0
+        status_counts[status.value] = 0
 
-     
+      
 
-    active_tables = 0
+      active_tables = 0
 
-    for table in tables:
+      for table in tables:
 
-      if table.get('is_active', False):
+        if table.get('is_active', False):
 
-        active_tables += 1
+          active_tables += 1
 
-        table_status = table.get('table_status', TableStatus.AVAILABLE.value)
+          table_status = table.get('table_status', TableStatus.AVAILABLE.value)
 
-        status_counts[table_status] += 1
+          status_counts[table_status] += 1
 
-     
+      
 
-    return {
+      return {
 
-      "venue_id": venue_id,
+        "venue_id": venue_id,
 
-      "total_tables": len(tables),
+        "total_tables": len(tables),
 
-      "active_tables": active_tables,
+        "active_tables": active_tables,
 
-      "status_breakdown": status_counts,
+        "status_breakdown": status_counts,
 
-      "utilization_rate": (status_counts.get('occupied', 0) / active_tables * 100) if active_tables > 0 else 0
+        "utilization_rate": (status_counts.get('occupied', 0) / active_tables * 100) if active_tables > 0 else 0
 
-    }
+      }
 
 
 
@@ -1416,69 +1361,6 @@ async def bulk_create_tables(
           detail=f"Table number {table_number} already exists"
 
         )
-
-       
-
-      table_data = {
-
-        "venue_id": venue_id,
-
-        "table_number": table_number,
-
-        "capacity": capacity,
-
-        "location": location,
-
-        "qr_code": tables_endpoint._generate_qr_code(venue_id, table_number),
-
-        "table_status": TableStatus.AVAILABLE.value,
-
-        "is_active": True
-
-      }
-
-      tables_to_create.append(table_data)
-
-     
-
-    # Bulk create
-
-    created_ids = await repo.create_batch(tables_to_create)
-
-     
-
-    logger.info(f"Bulk created {len(created_ids)} tables for venue: {venue_id}")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message=f"Created {len(created_ids)} tables successfully",
-
-      data={"created_count": len(created_ids), "table_ids": created_ids}
-
-    )
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error bulk creating tables: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to create tables"
-
-    )
-
-
-
 
 
 @router.post("/bulk-update-status", 
