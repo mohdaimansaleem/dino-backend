@@ -354,7 +354,8 @@ async def health_check():
       "performance_optimization": "Caching and query optimization",
 
       "repository_pattern": "Centralized with caching"
-
+    }
+  }
 # Consolidated health checks are now in /api/v1/health endpoints
 
 
