@@ -515,11 +515,16 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
           detail="Venue not found"
 
         )
+    except Exception as e:
+      raise HTTPException(
+                  status_code=status.HTTP_401_UNAUTHORIZED,
+                  detail="Authentication required"
+              )
     
-    def get_repository(self) -> VenueRepository:
-        return get_venue_repo()
+  def get_repository(self) -> VenueRepository:
+      return get_venue_repo()
     
-    async def _prepare_create_data(self, 
+  async def _prepare_create_data(self, 
                                   data: Dict[str, Any], 
                                   current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Prepare venue data before creation"""
@@ -540,7 +545,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
         
         return data
     
-    async def _validate_create_permissions(self, 
+  async def _validate_create_permissions(self, 
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate venue creation permissions"""
@@ -551,7 +556,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
                 detail="Authentication required"
             )
     
-    async def _validate_access_permissions(self, 
+  async def _validate_access_permissions(self, 
                                          item: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate venue access permissions"""
@@ -563,7 +568,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
         
         # Basic access validation handled by parent class
     
-    async def _build_query_filters(self, 
+  async def _build_query_filters(self, 
                                   filters: Optional[Dict[str, Any]], 
                                   search: Optional[str],
                                   current_user: Optional[Dict[str, Any]]) -> List[tuple]:
@@ -587,7 +592,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
         
         return query_filters
     
-    async def get_items(self, 
+  async def get_items(self, 
                        page: int = 1, 
                        page_size: int = 10,
                        search: Optional[str] = None,
@@ -653,7 +658,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
                 detail="Failed to get venues list"
             )
     
-    async def search_venues_by_text(self, 
+  async def search_venues_by_text(self, 
                                   search_term: str,
                                   current_user: Optional[Dict[str, Any]] = None) -> List[Venue]:
         """Search venues by name, description, or cuisine"""
@@ -678,7 +683,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
             venues.append(VenueResponseDTO(**venue))
         return venues
     
-    async def get_venues_by_subscription_status(self, 
+  async def get_venues_by_subscription_status(self, 
                                              status: SubscriptionStatus,
                                              current_user: Dict[str, Any]) -> List[Venue]:
         """Get venues by subscription status"""
@@ -703,7 +708,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
             venues.append(VenueResponseDTO(**venue))
         return venues
     
-    async def get_item(self, 
+  async def get_item(self, 
                       item_id: str, 
                       current_user: Optional[Dict[str, Any]]):
         """Get venue by ID with proper status handling"""
@@ -734,7 +739,7 @@ class VenuesEndpoint(WorkspaceIsolatedEndpoint[Venue, VenueCreateDTO, VenueUpdat
                 detail="Failed to get venue"
             )
     
-    async def get_venue_analytics(self, 
+  async def get_venue_analytics(self, 
                                venue_id: str,
                                current_user: Dict[str, Any]) -> Dict[str, Any]:
         """Get basic analytics for a venue"""
