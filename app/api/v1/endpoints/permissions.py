@@ -725,6 +725,33 @@ async def get_permission_statistics(
             detail="Failed to get permission statistics"
         )
 
+@router.get("/check-name", 
+            response_model=Dict[str, bool],
+            summary="Check permission name availability",
+            description="Check if permission name is available")
+async def check_permission_name_availability(
+    name: str = Query(..., description="Permission name to check"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID"),
+    exclude_id: Optional[str] = Query(None, description="Permission ID to exclude from check")
+):
+    """Check if permission name is available"""
+    try:
+        # Workspace filtering removed for open API
+        
+        existing_permission = await perm_repo.get_by_name(name)
+        
+        # If excluding a specific permission ID, check if it's the same permission
+        if existing_permission and exclude_id and existing_permission.get('id') == exclude_id:
+            return {"available": True}
+        
+        return {"available": existing_permission is None}
+        
+    except Exception as e:
+        logger.error(f"Error checking permission name availability: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to check permission name availability"
+        )
 
 @router.get("/unused", 
             response_model=List[PermissionResponseDTO],

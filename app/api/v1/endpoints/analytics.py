@@ -217,6 +217,58 @@ async def get_venue_live_metrics(
         )
 
 
+@router.get("/venues/{venue_id}/revenue-trend", response_model=ApiResponse)
+async def get_venue_revenue_trend(
+    venue_id: str,
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    granularity: str = Query("day", regex="^(hour|day|week|month)$", description="Data granularity"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get revenue trend data for a specific venue"""
+    logger.info(f"Revenue trend requested for venue: {venue_id} by user: {current_user.get('id')}")
+    
+    try:
+        # Check if venue exists
+        repo_manager = _get_repo_manager()
+        venue_repo = repo_manager.get_repository('venue')
+        venue = await venue_repo.get_by_id(venue_id)
+        
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Venue with ID {venue_id} not found"
+            )
+        
+        # Parse dates
+        try:
+            period_start = datetime.strptime(start_date, "%Y-%m-%d")
+            period_end = datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid date format. Use YYYY-MM-DD"
+            )
+        
+        # Get revenue trend data
+        revenue_trend = await _get_venue_revenue_trend(venue_id, period_start, period_end, granularity)
+        
+        return ApiResponse(
+            success=True,
+            message="Revenue trend retrieved successfully",
+            data=revenue_trend
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving revenue trend: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load revenue trend"
+        )
+
+
 async def _get_venue_analytics_data(venue_id: str, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
     """Get comprehensive analytics data for a venue"""
     try:

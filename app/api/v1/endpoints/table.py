@@ -1,53 +1,28 @@
 """
-
 Enhanced Table Management API Endpoints
-
 Complete CRUD for tables with QR code generation and status management
-
 """
-
 from typing import List, Dict, Any, Optional
-
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from datetime import datetime, timezone
 import hashlib
-
 import base64
-
 import json
 
-
-
 from app.models.schemas import Table, TableStatus
-
 from app.models.dto import (
-
-  TableCreateDTO, TableUpdateDTO, TableResponseDTO, QRCodeDataDTO,
-
-  ApiResponseDTO, PaginatedResponseDTO
-
+    TableCreateDTO, TableUpdateDTO, TableResponseDTO, QRCodeDataDTO,
+    ApiResponseDTO, PaginatedResponseDTO
 )
-
 from pydantic import BaseModel
-
 # Removed base endpoint dependency
-
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
-
 from app.database.firestore import get_table_repo, TableRepository
-
 from app.core.security import get_current_user, get_current_admin_user
-
 from app.core.logging_config import get_logger
 
-
-
 logger = get_logger(__name__)
-
 router = APIRouter()
-
-
-
 
 
 class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdateDTO]):
@@ -216,278 +191,67 @@ class TablesEndpoint(WorkspaceIsolatedEndpoint[Table, TableCreateDTO, TableUpdat
         if table_data:
             return Table(**table_data)
         return None
-   
-
-    async def _validate_create_permissions(self, 
-
-                     data: Dict[str, Any], 
-
-                     current_user: Optional[Dict[str, Any]]):
-
-      """Validate table creation permissions"""
-
-      if not current_user:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_401_UNAUTHORIZED,
-
-          detail="Authentication required"
-
-        )
-
-      
-
-      # Validate venue access
-
-      venue_id = data.get('venue_id')
-
-      if venue_id:
-
-        await self._validate_venue_access(venue_id, current_user)
-
-      
-
-      # Check for duplicate table number in venue
-
-      table_number = data.get('table_number')
-
-      if venue_id and table_number:
-
-        repo = self.get_repository()
-
-        existing_table = await repo.get_by_table_number(venue_id, table_number)
-
-        if existing_table:
-
-          raise HTTPException(
-
-            status_code=status.HTTP_400_BAD_REQUEST,
-
-            detail=f"Table number {table_number} already exists in this venue"
-
-          )
-
-   
-
-    async def _validate_access_permissions(self, 
-
-                     item: Dict[str, Any], 
-
-                     current_user: Optional[Dict[str, Any]]):
-
-      """Override to allow public access for table information"""
-
-      # Allow public access for table information (QR code scanning)
-
-      if current_user is None:
-
-        return
-
-      
-
-      # For authenticated users, use normal workspace validation
-
-      await super()._validate_access_permissions(item, current_user)
-
-   
-
-    async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
-
-      """Validate user has access to the venue"""
-
-      from app.database.firestore import get_venue_repo
-
-      from app.core.security import _get_user_role
-
-      
-
-      venue_repo = get_venue_repo()
-
-      
-
-      venue = await venue_repo.get_by_id(venue_id)
-
-      if not venue:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_404_NOT_FOUND,
-
-          detail="Venue not found"
-
-        )
-
-      
-
-      # Get the actual role name from role_id
-
-      user_role = await _get_user_role(current_user)
-
-      
-
-      # SuperAdmin and Admin have access to all venues
-
-      if user_role in ['superadmin', 'admin']:
-
-        return
-
-      
-
-      # For other roles, check workspace access
-
-      user_workspace_id = current_user.get('workspace_id')
-
-      venue_workspace_id = venue.get('workspace_id')
-
-      
-
-      if user_workspace_id != venue_workspace_id:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_403_FORBIDDEN,
-
-          detail="Access denied: Venue belongs to different workspace"
-
-        )
-
-   
-
-    async def get_table_by_qr_code(self, qr_code: str) -> Optional[Table]:
-
-        """Get table by QR code"""
-
-        repo = self.get_repository()
-
-        table_data = await repo.get_by_qr_code(qr_code)
-
-        
-
-        if table_data:
-
-          return Table(**table_data)
-
-        return None
-
-   
-
+    
     async def update_table_status(self, 
-
-                table_id: str,
-
-                new_status: TableStatus,
-
-                current_user: Dict[str, Any]) -> bool:
-
-      """Update table status"""
-
-      repo = self.get_repository()
-
-      
-
-      # Validate table exists and user has access
-
-      table_data = await repo.get_by_id(table_id)
-
-      if not table_data:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_404_NOT_FOUND,
-
-          detail="Table not found"
-
-        )
-
-      
-
-      await self._validate_access_permissions(table_data, current_user)
-
-      
-
-      # Update status
-
-      await repo.update(table_id, {"table_status": new_status.value})
-
-      
-
-      logger.info(f"Table status updated: {table_id} -> {new_status.value}")
-
-      return True
-
-   
-
+                                table_id: str,
+                                new_status: TableStatus,
+                                current_user: Dict[str, Any]) -> bool:
+        """Update table status"""
+        repo = self.get_repository()
+        
+        # Validate table exists and user has access
+        table_data = await repo.get_by_id(table_id)
+        if not table_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Table not found"
+            )
+        
+        await self._validate_access_permissions(table_data, current_user)
+        
+        # Update status
+        await repo.update(table_id, {"table_status": new_status.value})
+        
+        logger.info(f"Table status updated: {table_id} -> {new_status.value}")
+        return True
+    
     async def get_venue_table_statistics(self, 
-
-                   venue_id: str,
-
-                   current_user: Dict[str, Any]) -> Dict[str, Any]:
-
-      """Get table statistics for a venue"""
-
-      # Validate venue access
-
-      await self._validate_venue_access(venue_id, current_user)
-
-      
-
-      repo = self.get_repository()
-
-      tables = await repo.get_by_venue(venue_id)
-
-      
-
-      # Count by status
-
-      status_counts = {}
-
-      for status in TableStatus:
-
-        status_counts[status.value] = 0
-
-      
-
-      active_tables = 0
-
-      for table in tables:
-
-        if table.get('is_active', False):
-
-          active_tables += 1
-
-          table_status = table.get('table_status', TableStatus.AVAILABLE.value)
-
-          status_counts[table_status] += 1
-
-      
-
-      return {
-
-        "venue_id": venue_id,
-
-        "total_tables": len(tables),
-
-        "active_tables": active_tables,
-
-        "status_breakdown": status_counts,
-
-        "utilization_rate": (status_counts.get('occupied', 0) / active_tables * 100) if active_tables > 0 else 0
-
-      }
-
-
-
+                                      venue_id: str,
+                                      current_user: Dict[str, Any]) -> Dict[str, Any]:
+        """Get table statistics for a venue"""
+        # Validate venue access
+        await self._validate_venue_access(venue_id, current_user)
+        
+        repo = self.get_repository()
+        tables = await repo.get_by_venue(venue_id)
+        
+        # Count by status
+        status_counts = {}
+        for status in TableStatus:
+            status_counts[status.value] = 0
+        
+        active_tables = 0
+        for table in tables:
+            if table.get('is_active', False):
+                active_tables += 1
+                table_status = table.get('table_status', TableStatus.AVAILABLE.value)
+                status_counts[table_status] += 1
+        
+        return {
+            "venue_id": venue_id,
+            "total_tables": len(tables),
+            "active_tables": active_tables,
+            "status_breakdown": status_counts,
+            "utilization_rate": (status_counts.get('occupied', 0) / active_tables * 100) if active_tables > 0 else 0
+        }
 
 
 # Initialize endpoint
-
 tables_endpoint = TablesEndpoint()
 
 
-
-
-
+# =============================================================================
+# TABLE MANAGEMENT ENDPOINTS
 # =============================================================================
 
 # DINO GET
@@ -569,33 +333,17 @@ async def get_tables(
         )
 
 
-
-
-
 @router.post("", 
-
-       response_model=ApiResponseDTO,
-
-       status_code=status.HTTP_201_CREATED,
-
-       summary="Create table",
-
-       description="Create a new table with QR code")
-
+             response_model=ApiResponseDTO,
+             status_code=status.HTTP_201_CREATED,
+             summary="Create table",
+             description="Create a new table with QR code")
 async def create_table(
-
-  table_data: TableCreateDTO,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    table_data: TableCreateDTO,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Create a new table"""
-
-  return await tables_endpoint.create_item(table_data, current_user)
-
-
-
+    """Create a new table"""
+    return await tables_endpoint.create_item(table_data, current_user)
 
 
 @router.get("/{table_id}", 
@@ -611,85 +359,45 @@ async def get_table(
 
 
 @router.put("/{table_id}", 
-
-      response_model=ApiResponseDTO,
-
-      summary="Update table",
-
-      description="Update table information")
-
+            response_model=ApiResponseDTO,
+            summary="Update table",
+            description="Update table information")
 async def update_table(
-
-  table_id: str,
-
-  table_update: TableUpdateDTO,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    table_id: str,
+    table_update: TableUpdateDTO,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Update table information"""
-
-  return await tables_endpoint.update_item(table_id, table_update, current_user)
-
-
-
+    """Update table information"""
+    return await tables_endpoint.update_item(table_id, table_update, current_user)
 
 
 @router.delete("/{table_id}", 
-
-        response_model=ApiResponseDTO,
-
-        summary="Delete table",
-
-        description="Deactivate table (soft delete)")
-
+               response_model=ApiResponseDTO,
+               summary="Delete table",
+               description="Deactivate table (soft delete)")
 async def delete_table(
-
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    table_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Delete table (soft delete by deactivating)"""
-
-  return await tables_endpoint.delete_item(table_id, current_user, soft_delete=True)
-
-
-
+    """Delete table (soft delete by deactivating)"""
+    return await tables_endpoint.delete_item(table_id, current_user, soft_delete=True)
 
 
 # =============================================================================
-
 # TABLE STATUS MANAGEMENT ENDPOINTS
-
 # =============================================================================
-
-
 
 class TableStatusUpdate(BaseModel):
-
-  new_status: TableStatus
-
-
+    new_status: TableStatus
 
 @router.put("/{table_id}/status", 
-
-      response_model=ApiResponseDTO,
-
-      summary="Update table status",
-
-      description="Update table status (available, occupied, etc.)")
-
+            response_model=ApiResponseDTO,
+            summary="Update table status",
+            description="Update table status (available, occupied, etc.)")
 async def update_table_status(
-
-  table_id: str,
-
-  status_update: TableStatusUpdate,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
+    table_id: str,
+    status_update: TableStatusUpdate,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Update table status"""
     try:
@@ -724,305 +432,155 @@ async def update_table_status(
 
 
 @router.post("/{table_id}/occupy", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Occupy table",
-
-       description="Mark table as occupied")
-
+             response_model=ApiResponseDTO,
+             summary="Occupy table",
+             description="Mark table as occupied")
 async def occupy_table(
-
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
+    table_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-
-  """Mark table as occupied"""
-
-  try:
-
-    success = await tables_endpoint.update_table_status(
-
-      table_id, TableStatus.OCCUPIED, current_user
-
-    )
-
-     
-
-    if success:
-
-      return ApiResponseDTO(
-
-        success=True,
-
-        message="Table marked as occupied"
-
-      )
-
-    else:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Failed to occupy table"
-
-      )
-
-       
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error occupying table: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to occupy table"
-
-    )
-
-
-
+    """Mark table as occupied"""
+    try:
+        success = await tables_endpoint.update_table_status(
+            table_id, TableStatus.OCCUPIED, current_user
+        )
+        
+        if success:
+            return ApiResponseDTO(
+                success=True,
+                message="Table marked as occupied"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to occupy table"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error occupying table: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to occupy table"
+        )
 
 
 @router.post("/{table_id}/free", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Free table",
-
-       description="Mark table as available")
-
+             response_model=ApiResponseDTO,
+             summary="Free table",
+             description="Mark table as available")
 async def free_table(
-
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
+    table_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-
-  """Mark table as available"""
-
-  try:
-
-    success = await tables_endpoint.update_table_status(
-
-      table_id, TableStatus.AVAILABLE, current_user
-
-    )
-
-     
-
-    if success:
-
-      return ApiResponseDTO(
-
-        success=True,
-
-        message="Table marked as available"
-
-      )
-
-    else:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_400_BAD_REQUEST,
-
-        detail="Failed to free table"
-
-      )
-
-       
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error freeing table: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to free table"
-
-    )
-
-
-
+    """Mark table as available"""
+    try:
+        success = await tables_endpoint.update_table_status(
+            table_id, TableStatus.AVAILABLE, current_user
+        )
+        
+        if success:
+            return ApiResponseDTO(
+                success=True,
+                message="Table marked as available"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to free table"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error freeing table: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to free table"
+        )
 
 
 # =============================================================================
 # QR CODE MANAGEMENT AND PREVIEW ENDPOINTS
 # =============================================================================
 
-
-
 @router.get("/{table_id}/qr-code", 
-
-      response_model=Dict[str, Any],
-
-      summary="Get table QR code",
-
-      description="Get QR code data for table")
-
+            response_model=Dict[str, Any],
+            summary="Get table QR code",
+            description="Get QR code data for table")
 async def get_table_qr_code(
-
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
+    table_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-
-  """Get table QR code"""
-
-  try:
-
-    table = await tables_endpoint.get_item(table_id, current_user)
-
-     
-
-    # Decode QR code to get data
-
-    qr_data = tables_endpoint._verify_qr_code(table.qr_code)
-
-     
-
-    if not qr_data:
-
-      raise HTTPException(
-
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-        detail="Invalid QR code data"
-
-      )
-
-     
-
-    return {
-
-      "table_id": table_id,
-
-      "qr_code": table.qr_code,
-
-      "qr_code_url": table.qr_code_url,
-
-      "venue_id": qr_data.venue_id,
-
-      "table_number": qr_data.table_number
-
-    }
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error getting table QR code: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to get QR code"
-
-    )
-
-
-
+    """Get table QR code"""
+    try:
+        table = await tables_endpoint.get_item(table_id, current_user)
+        
+        # Decode QR code to get data
+        qr_data = tables_endpoint._verify_qr_code(table.qr_code)
+        
+        if not qr_data:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid QR code data"
+            )
+        
+        return {
+            "table_id": table_id,
+            "qr_code": table.qr_code,
+            "qr_code_url": table.qr_code_url,
+            "venue_id": qr_data.venue_id,
+            "table_number": qr_data.table_number
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting table QR code: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get QR code"
+        )
 
 
 @router.post("/{table_id}/regenerate-qr", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Regenerate table QR code",
-
-       description="Regenerate QR code for table")
-
+             response_model=ApiResponseDTO,
+             summary="Regenerate table QR code",
+             description="Regenerate QR code for table")
 async def regenerate_table_qr_code(
-
-  table_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    table_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Regenerate table QR code"""
-
-  try:
-
-    table = await tables_endpoint.get_item(table_id, current_user)
-
-     
-
-    # Generate new QR code
-
-    new_qr_code = tables_endpoint._generate_qr_code(table.venue_id, table.table_number)
-
-     
-
-    # Update table
-
-    repo = get_table_repo()
-
-    await repo.update(table_id, {
-
-      "qr_code": new_qr_code,
-
-      "qr_code_url": None # Reset URL, will be regenerated
-
-    })
-
-     
-
-    logger.info(f"QR code regenerated for table: {table_id}")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message="QR code regenerated successfully",
-
-      data={"qr_code": new_qr_code}
-
-    )
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error regenerating QR code: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to regenerate QR code"
-
-    )
-
-
-
+    """Regenerate table QR code"""
+    try:
+        table = await tables_endpoint.get_item(table_id, current_user)
+        
+        # Generate new QR code
+        new_qr_code = tables_endpoint._generate_qr_code(table.venue_id, table.table_number)
+        
+        # Update table
+        repo = get_table_repo()
+        await repo.update(table_id, {
+            "qr_code": new_qr_code,
+            "qr_code_url": None  # Reset URL, will be regenerated
+        })
+        
+        logger.info(f"QR code regenerated for table: {table_id}")
+        return ApiResponseDTO(
+            success=True,
+            message="QR code regenerated successfully",
+            data={"qr_code": new_qr_code}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error regenerating QR code: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to regenerate QR code"
+        )
 
 
 @router.post("/verify-qr", 
@@ -1153,27 +711,16 @@ async def get_table_public(
 
 # =============================================================================
 # VENUE TABLE ENDPOINTS
-
 # =============================================================================
 
-
-
 @router.get("/venues/{venue_id}/tables", 
-
-      response_model=List[TableResponseDTO],
-
-      summary="Get venue tables",
-
-      description="Get all tables for a specific venue")
-
+            response_model=List[TableResponseDTO],
+            summary="Get venue tables",
+            description="Get all tables for a specific venue")
 async def get_venue_tables(
-
-  venue_id: str,
-
-  status: Optional[TableStatus] = Query(None, description="Filter by status"),
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
+    venue_id: str,
+    status: Optional[TableStatus] = Query(None, description="Filter by status"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get all tables for a venue"""
     try:
@@ -1235,71 +782,38 @@ async def get_venue_tables(
 
 
 @router.get("/venues/{venue_id}/statistics", 
-
-      response_model=Dict[str, Any],
-
-      summary="Get venue table statistics",
-
-      description="Get table statistics for a venue")
-
+            response_model=Dict[str, Any],
+            summary="Get venue table statistics",
+            description="Get table statistics for a venue")
 async def get_venue_table_statistics(
-
-  venue_id: str,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    venue_id: str,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Get table statistics for a venue"""
-
-  try:
-
-    statistics = await tables_endpoint.get_venue_table_statistics(venue_id, current_user)
-
-     
-
-    logger.info(f"Table statistics retrieved for venue: {venue_id}")
-
-    return statistics
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error getting table statistics: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to get table statistics"
-
-    )
-
-
-
+    """Get table statistics for a venue"""
+    try:
+        statistics = await tables_endpoint.get_venue_table_statistics(venue_id, current_user)
+        
+        logger.info(f"Table statistics retrieved for venue: {venue_id}")
+        return statistics
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting table statistics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get table statistics"
+        )
 
 
 # =============================================================================
-
 # BULK OPERATIONS ENDPOINTS
-
 # =============================================================================
-
-
 
 @router.post("/bulk-create", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Bulk create tables",
-
-       description="Create multiple tables at once")
-
+             response_model=ApiResponseDTO,
+             summary="Bulk create tables",
+             description="Create multiple tables at once")
 async def bulk_create_tables(
     venue_id: str,
     start_number: int = Query(..., ge=1, description="Starting table number"),
@@ -1355,94 +869,50 @@ async def bulk_create_tables(
     except Exception as e:
         logger.error(f"Error bulk creating tables: {e}")
         raise HTTPException(
-
-          status_code=status.HTTP_400_BAD_REQUEST,
-
-          detail=f"Table number {table_number} already exists"
-
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create tables"
         )
 
 
 @router.post("/bulk-update-status", 
-
-       response_model=ApiResponseDTO,
-
-       summary="Bulk update table status",
-
-       description="Update status for multiple tables")
-
+             response_model=ApiResponseDTO,
+             summary="Bulk update table status",
+             description="Update status for multiple tables")
 async def bulk_update_table_status(
-
-  table_ids: List[str],
-
-  new_status: TableStatus,
-
-  current_user: Dict[str, Any] = Depends(get_current_admin_user)
-
+    table_ids: List[str],
+    new_status: TableStatus,
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-
-  """Bulk update table status"""
-
-  try:
-
-    repo = get_table_repo()
-
-     
-
-    # Validate all tables exist and user has access
-
-    for table_id in table_ids:
-
-      table = await repo.get_by_id(table_id)
-
-      if not table:
-
-        raise HTTPException(
-
-          status_code=status.HTTP_404_NOT_FOUND,
-
-          detail=f"Table {table_id} not found"
-
+    """Bulk update table status"""
+    try:
+        repo = get_table_repo()
+        
+        # Validate all tables exist and user has access
+        for table_id in table_ids:
+            table = await repo.get_by_id(table_id)
+            if not table:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Table {table_id} not found"
+                )
+            
+            await tables_endpoint._validate_access_permissions(table, current_user)
+        
+        # Bulk update
+        updates = [(table_id, {"table_status": new_status.value}) for table_id in table_ids]
+        await repo.update_batch(updates)
+        
+        logger.info(f"Bulk updated status for {len(table_ids)} tables to {new_status.value}")
+        return ApiResponseDTO(
+            success=True,
+            message=f"Updated status for {len(table_ids)} tables to {new_status.value}"
         )
-
-       
-
-      await tables_endpoint._validate_access_permissions(table, current_user)
-
-     
-
-    # Bulk update
-
-    updates = [(table_id, {"table_status": new_status.value}) for table_id in table_ids]
-
-    await repo.update_batch(updates)
-
-     
-
-    logger.info(f"Bulk updated status for {len(table_ids)} tables to {new_status.value}")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message=f"Updated status for {len(table_ids)} tables to {new_status.value}"
-
-    )
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error bulk updating table status: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to update table status"
-
-    )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error bulk updating table status: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update table status"
+        )

@@ -646,6 +646,35 @@ async def activate_user(
 
 
 # =============================================================================
+# SEARCH ENDPOINTS
+# =============================================================================
+
+@router.get("/search/text", 
+            response_model=List[UserResponseDTO],
+            summary="Search users",
+            description="Search users by name, email, or phone")
+async def search_users(
+    q: str = Query(..., min_length=2, description="Search query"),
+    current_user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Search users by text"""
+    try:
+        users = await user_endpoint.search_users_by_text(q, current_user)
+        
+        logger.info(f"User search performed: '{q}' - {len(users)} results")
+        return users
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in user search: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="User search failed"
+        )
+
+
+# =============================================================================
 # ADDRESS MANAGEMENT ENDPOINTS - TEMPORARILY DISABLED
 # =============================================================================
 # Note: UserAddress schema was removed during optimization
