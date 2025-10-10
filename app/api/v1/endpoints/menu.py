@@ -3174,15 +3174,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail={
-                        "error": error_data.get('error_type', 'validation_failed'),
-                        "message": error_data.get('message', 'QR code validation failed')
-                    }
-                )
-
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
