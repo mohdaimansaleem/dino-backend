@@ -159,10 +159,10 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
     
-    def get_repository(self):
-        return get_repository_manager().get_repository('menu_category')
+def get_repository(self):
+    return get_repository_manager().get_repository('menu_category')
     
-    async def _prepare_create_data(self, 
+async def _prepare_create_data(self, 
                                   data: Dict[str, Any], 
                                   current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Prepare category data before creation"""
@@ -172,7 +172,7 @@ async def upload_item_image(
         
         return data
     
-    async def _validate_create_permissions(self, 
+async def _validate_create_permissions(self, 
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate category creation permissions"""
@@ -278,12 +278,8 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Validate venue access
-        venue_id = data.get('venue_id')
-        if venue_id:
-            await self._validate_venue_access(venue_id, current_user)
     
-    async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
+async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
         await require_venue_access(venue_id, current_user)
 
@@ -397,10 +393,10 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
     
-    def get_repository(self):
+def get_repository(self):
         return get_repository_manager().get_repository('menu_item')
     
-    async def _prepare_create_data(self, 
+async def _prepare_create_data(self, 
                                   data: Dict[str, Any], 
                                   current_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Prepare menu item data before creation"""
@@ -413,7 +409,7 @@ async def upload_item_image(
         
         return data
     
-    async def _validate_create_permissions(self, 
+async def _validate_create_permissions(self, 
                                          data: Dict[str, Any], 
                                          current_user: Optional[Dict[str, Any]]):
         """Validate menu item creation permissions"""
@@ -519,21 +515,13 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Validate venue access
-        venue_id = data.get('venue_id')
-        if venue_id:
-            await self._validate_venue_access(venue_id, current_user)
-        
-        # Validate category exists and belongs to the same venue
-        category_id = data.get('category_id')
-        if category_id:
-            await self._validate_category_access(category_id, venue_id)
+
     
-    async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
+async def _validate_venue_access(self, venue_id: str, current_user: Dict[str, Any]):
         """Validate user has access to the venue"""
         await require_venue_access(venue_id, current_user)
     
-    async def _validate_category_access(self, category_id: str, venue_id: str):
+async def _validate_category_access(self, category_id: str, venue_id: str):
         """Validate category belongs to the venue"""
         category_repo = get_repository_manager().get_repository('menu_category')
         
@@ -640,11 +628,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        if category.get('venue_id') != venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Category does not belong to the specified venue"
-            )
 
 
 @router.post("/items/{item_id}/image", 
@@ -742,7 +725,7 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
     
-    async def search_menu_items(self, 
+async def search_menu_items(self, 
                               venue_id: str,
                               search_term: str,
                               current_user: Dict[str, Any]) -> List[MenuItem]:
@@ -769,7 +752,7 @@ async def upload_item_image(
         
         return [MenuItemResponseDTO(**item) for item in processed_items]
     
-    async def get_items_by_category(self, 
+async def get_items_by_category(self, 
                                   venue_id: str,
                                   category_id: str,
                                   current_user: Dict[str, Any]) -> List[MenuItem]:
@@ -940,6 +923,9 @@ async def delete_menu_category(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Menu category not found"
             )
+    except HTTPException:
+        raise
+    
 
 
 @router.post("/items/{item_id}/image", 
@@ -1037,17 +1023,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Validate permissions
-        await categories_endpoint._validate_access_permissions(category, current_user)
-        
-        # Check if category has menu items
-        items_in_category = await menu_item_repo.query([('category_id', '==', category_id)])
-        if items_in_category and not force:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot delete category: {len(items_in_category)} menu items are assigned to this category. Use force=true to delete anyway or reassign items first."
-            )
-
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -1144,21 +1119,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # If force delete, remove all items in the category first
-        if force and items_in_category:
-            for item in items_in_category:
-                await menu_item_repo.delete(item['id'])
-            logger.info(f"Force deleted {len(items_in_category)} menu items in category: {category_id}")
-        
-        # Delete category from database
-        await category_repo.delete(category_id)
-        
-        logger.info(f"Menu category deleted: {category_id}")
-        return ApiResponseDTO(
-            success=True,
-            message="Menu category deleted successfully"
-        )
-
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -1398,6 +1358,8 @@ async def upload_category_image(
             message="Category image uploaded successfully",
             data={"image_url": image_url}
         )
+    except HTTPException:
+        raise
 
 
 @router.post("/items/{item_id}/image", 
@@ -1504,7 +1466,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
 
-  """Upload category image"""
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -1754,7 +1715,8 @@ async def delete_menu_item(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Menu item not found"
             )
-
+    except HTTPException:
+        raise
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -1851,22 +1813,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Validate permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Check if item is used in any orders (safety check)
-        orders_with_item = await order_repo.query([('items', 'array_contains_any', [{'menu_item_id': item_id}])])
-        if orders_with_item:
-            logger.warning(f"Menu item {item_id} is referenced in {len(orders_with_item)} orders but will be deleted")
-        
-        # Delete item from database
-        await repo.delete(item_id)
-        
-        logger.info(f"Menu item permanently deleted: {item_id}")
-        return ApiResponseDTO(
-            success=True,
-            message="Menu item deleted successfully"
-        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -2098,6 +2044,8 @@ async def upload_item_images(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Menu item not found"
             )
+    except HTTPException:
+        raise
 
 
 @router.post("/items/{item_id}/image", 
@@ -2195,16 +2143,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Validate access permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Get venue information for folder structure
-        venue_id = item.get('venue_id')
-        if not venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Menu item must have a venue_id"
-            )
 
 
 @router.post("/items/{item_id}/image", 
@@ -2302,6 +2240,46 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
+
+@router.post("/items/{item_id}/image", 
+             response_model=ApiResponseDTO,
+             summary="Upload single item image",
+             description="Upload a single image for menu item")
+async def upload_item_image(
+    item_id: str,
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Upload a single menu item image with workspace/venue folder structure"""
+    try:
+        # Get menu item and validate access
+        repo = get_repository_manager().get_repository('menu_item')
+        item = await repo.get_by_id(item_id)
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Menu item not found"
+            )
+        
+        # Validate access permissions
+        await items_endpoint._validate_access_permissions(item, current_user)
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Get venue information for folder structure
+        venue_id = item.get('venue_id')
+        if not venue_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Menu item must have a venue_id"
+            )
+        
         # Get venue to get workspace_id
         venue_repo = get_repository_manager().get_repository('venue')
         venue = await venue_repo.get_by_id(venue_id)
@@ -2310,6 +2288,53 @@ async def upload_item_image(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Venue not found"
             )
+        
+        workspace_id = venue.get('workspace_id')
+        if not workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue must have a workspace_id"
+            )
+        
+        # Upload image using storage service with workspace/venue structure
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        
+        # Generate unique identifier for this upload
+        import uuid
+        upload_id = str(uuid.uuid4())[:8]
+        
+        image_url = await storage_service.upload_menu_item_image(
+            file, upload_id, workspace_id, venue_id
+        )
+        
+        # Update item with new image URL
+        current_images = item.get('image_urls', [])
+        updated_images = current_images + [image_url]
+        
+        await repo.update(item_id, {"image_urls": updated_images})
+        
+        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
+        return ApiResponseDTO(
+            success=True,
+            message="Image uploaded successfully",
+            data={
+                "image_url": image_url,
+                "total_images": len(updated_images),
+                "item_id": item_id,
+                "workspace_id": workspace_id,
+                "venue_id": venue_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading item image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image"
+        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -2406,13 +2431,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-        
-        workspace_id = venue.get('workspace_id')
-        if not workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue must have a workspace_id"
-            )
 
 
 @router.post("/items/{item_id}/image", 
@@ -2509,23 +2527,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-        
-        # Upload images using storage service with workspace/venue structure
-        from app.services.storage_service import get_storage_service
-        storage_service = get_storage_service()
-        uploaded_urls = []
-        
-        for i, file in enumerate(files):
-            # Validate file
-            if not file.content_type or not file.content_type.startswith('image/'):
-                logger.warning(f"Invalid file type for {file.filename}: {file.content_type}")
-                continue
-            
-            try:
-                image_url = await storage_service.upload_menu_item_image(
-                    file, f"{item_id}_{i}", workspace_id, venue_id
-                )
-
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -2621,132 +2622,7 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-                uploaded_urls.append(image_url)
-                logger.info(f"Uploaded image for menu item {item_id}: {image_url}")
-            except Exception as upload_error:
-                logger.error(f"Failed to upload {file.filename}: {upload_error}")
-                continue
-        
-        if not uploaded_urls:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No valid images were uploaded"
-            )
 
-
-@router.post("/items/{item_id}/image", 
-             response_model=ApiResponseDTO,
-             summary="Upload single item image",
-             description="Upload a single image for menu item")
-async def upload_item_image(
-    item_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Upload a single menu item image with workspace/venue folder structure"""
-    try:
-        # Get menu item and validate access
-        repo = get_repository_manager().get_repository('menu_item')
-        item = await repo.get_by_id(item_id)
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Menu item not found"
-            )
-        
-        # Validate access permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an image"
-            )
-        
-        # Get venue information for folder structure
-        venue_id = item.get('venue_id')
-        if not venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Menu item must have a venue_id"
-            )
-        
-        # Get venue to get workspace_id
-        venue_repo = get_repository_manager().get_repository('venue')
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Venue not found"
-            )
-        
-        workspace_id = venue.get('workspace_id')
-        if not workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue must have a workspace_id"
-            )
-        
-        # Upload image using storage service with workspace/venue structure
-        from app.services.storage_service import get_storage_service
-        storage_service = get_storage_service()
-        
-        # Generate unique identifier for this upload
-        import uuid
-        upload_id = str(uuid.uuid4())[:8]
-        
-        image_url = await storage_service.upload_menu_item_image(
-            file, upload_id, workspace_id, venue_id
-        )
-        
-        # Update item with new image URL
-        current_images = item.get('image_urls', [])
-        updated_images = current_images + [image_url]
-        
-        await repo.update(item_id, {"image_urls": updated_images})
-        
-        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
-        return ApiResponseDTO(
-            success=True,
-            message="Image uploaded successfully",
-            data={
-                "image_url": image_url,
-                "total_images": len(updated_images),
-                "item_id": item_id,
-                "workspace_id": workspace_id,
-                "venue_id": venue_id
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading item image: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload image"
-        )
-        
-        # Update item with new image URLs
-        current_images = item.get('image_urls', [])
-        all_images = current_images + uploaded_urls
-        
-        await repo.update(item_id, {"image_urls": all_images})
-        
-        logger.info(f"Successfully uploaded {len(uploaded_urls)} images for menu item: {item_id}")
-        return ApiResponseDTO(
-            success=True,
-            message=f"Successfully uploaded {len(uploaded_urls)} images",
-            data={
-                "uploaded_urls": uploaded_urls,
-                "total_images": len(all_images),
-                "item_id": item_id,
-                "workspace_id": workspace_id,
-                "venue_id": venue_id
-            }
-        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -3078,6 +2954,8 @@ async def validate_qr_code_access(qr_code: str = Query(..., description="QR code
                         "show_error_page": True
                     }
                 )
+    except HTTPException:
+        raise
 
 
 @router.post("/items/{item_id}/image", 
@@ -3270,12 +3148,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        logger.info(f"QR code access validated successfully for venue: {validation_data['venue']['id']}")
-        return {
-            "success": True,
-            "message": "QR code access validated successfully",
-            "data": validation_data
-        }
         
     except HTTPException:
         raise
@@ -3400,6 +3272,8 @@ async def get_public_venue_menu_with_validation(
         is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
             venue_id, table_id
         )
+    except HTTPException:
+        raise
 
 
 @router.post("/items/{item_id}/image", 
@@ -3497,19 +3371,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        if not is_valid:
-            # Return specific error for venue not accepting orders
-            error_data = validation_data
-            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "error": "venue_not_accepting_orders",
-                        "message": error_data.get('message', 'Venue is not accepting orders'),
-                        "venue_name": error_data.get('venue_name'),
-                        "show_error_page": True
-                    }
-                )
 
 
 @router.post("/items/{item_id}/image", 
@@ -3606,14 +3467,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "error": error_data.get('error_type', 'validation_failed'),
-                        "message": error_data.get('message', 'Access validation failed')
-                    }
-                )
 
 
 @router.post("/items/{item_id}/image", 
@@ -3711,64 +3564,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Get categories with error handling
-        try:
-            category_repo = get_repository_manager().get_repository('menu_category')
-            categories_data = await category_repo.get_by_venue(venue_id)
-            active_categories = [cat for cat in categories_data if cat.get('is_active', False)]
-            categories = [MenuCategoryResponseDTO(**cat) for cat in active_categories]
-        except Exception as cat_error:
-            logger.error(f"Error loading categories for venue {venue_id}: {cat_error}")
-            categories = []
-        
-        # Get menu items with error handling
-        try:
-            item_repo = get_repository_manager().get_repository('menu_item')
-            items_data = await item_repo.get_by_venue(venue_id)
-            available_items = [item for item in items_data if item.get('is_available', False)]
-            
-            # Process items to ensure all required fields are present
-            processed_items = process_menu_items_for_response(available_items)
-            items = []
-            for item in processed_items:
-                try:
-                    dto_item = MenuItemResponseDTO(**item)
-                    items.append(dto_item)
-                except Exception as dto_error:
-                    logger.error(f"Error creating DTO for item {item.get('id', 'unknown')}: {dto_error}")
-                    continue
-        except Exception as items_error:
-            logger.error(f"Error loading menu items for venue {venue_id}: {items_error}")
-            items = []
-        
-        # Organize items by category
-        items_by_category = {}
-        for item in items:
-            category_id = item.category_id
-            if category_id not in items_by_category:
-                items_by_category[category_id] = []
-            items_by_category[category_id].append(item)
-        
-        logger.info(f"Retrieved complete menu for venue: {venue_id} - {len(categories)} categories, {len(items)} items")
-        
-        return {
-            "success": True,
-            "venue": validation_data['venue'],
-            "table": validation_data['table'],
-            "categories": categories,
-            "items": items,
-            "items_by_category": items_by_category,
-            "validation_timestamp": validation_data['validation_timestamp']
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting venue menu with validation: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get menu"
-        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -3883,6 +3678,8 @@ async def get_public_venue_categories(
         is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
             venue_id, table_id
         )
+    except HTTPException:
+        raise
 
 
 @router.post("/items/{item_id}/image", 
@@ -3980,19 +3777,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        if not is_valid:
-            # Return specific error for venue not accepting orders
-            error_data = validation_data
-            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "error": "venue_not_accepting_orders",
-                        "message": error_data.get('message', 'Venue is not accepting orders'),
-                        "venue_name": error_data.get('venue_name'),
-                        "show_error_page": True
-                    }
-                )
 
 
 @router.post("/items/{item_id}/image", 
@@ -4089,14 +3873,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "error": error_data.get('error_type', 'validation_failed'),
-                        "message": error_data.get('message', 'Access validation failed')
-                    }
-                )
 
 
 @router.post("/items/{item_id}/image", 
@@ -4193,17 +3969,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-        
-        repo = get_repository_manager().get_repository('menu_category')
-        categories_data = await repo.get_by_venue(venue_id)
-        
-        # Filter only active categories for public access
-        active_categories = [cat for cat in categories_data if cat.get('is_active', False)]
-        
-        categories = [MenuCategoryResponseDTO(**cat) for cat in active_categories]
-        
-        logger.info(f"Retrieved {len(categories)} public categories for venue: {venue_id}")
-        return categories
         
     except HTTPException:
         raise
@@ -4217,414 +3982,341 @@ async def upload_item_image(
         return []
 
 
-@router.get("/public/venues/{venue_id}/items", 
-
-      response_model=List[MenuItemResponseDTO],
-
-      summary="Get venue menu items (public)",
-
-      description="Get all available menu items for a specific venue (public endpoint)")
-
+@router.get(
+    "/public/venues/{venue_id}/items",
+    response_model=List[MenuItemResponseDTO],
+    summary="Get venue menu items (public)",
+    description="Get all available menu items for a specific venue (public endpoint)"
+)
 async def get_public_venue_menu_items(
-
-  venue_id: str,
-
-  category_id: Optional[str] = None
-
+    venue_id: str,
+    category_id: Optional[str] = None,
+    table_id: Optional[str] = None  # Added if needed for validation
 ):
-
-  """Get all available menu items for a venue (public endpoint)"""
-
-  try:
-
-    logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
-
-     
-
-    repo = get_repository_manager().get_repository('menu_item')
-
-     
-
-    if category_id and category_id != "None":
-
-      # Get items by category
-
-      logger.debug(f"Getting items by category: {category_id}")
-
-      items_data = await repo.get_by_category(venue_id, category_id)
-
-    else:
-
-      # Get all items for venue
-
-      logger.debug(f"Getting all items for venue: {venue_id}")
-
-      items_data = await repo.get_by_venue(venue_id)
-
-     
-
-    logger.debug(f"Retrieved {len(items_data)} raw items from database")
-
-     
-
-    # Filter only available items for public access
-
-    available_items = [item for item in items_data if item.get('is_available', False)]
-
-    logger.debug(f"Filtered to {len(available_items)} available items")
-
-     
-
-    # Process items to ensure all required fields are present
-
+    """Get all available menu items for a venue (public endpoint)"""
     try:
-        logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}, table: {table_id}")
-        
-        # Import validation service
-        from app.services.venue_validation_service import venue_validation_service
-        
-        # Validate venue and table before showing menu
-        is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
-            venue_id, table_id
-        )
+        logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
 
-
-@router.post("/items/{item_id}/image", 
-             response_model=ApiResponseDTO,
-             summary="Upload single item image",
-             description="Upload a single image for menu item")
-async def upload_item_image(
-    item_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Upload a single menu item image with workspace/venue folder structure"""
-    try:
-        # Get menu item and validate access
         repo = get_repository_manager().get_repository('menu_item')
-        item = await repo.get_by_id(item_id)
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Menu item not found"
-            )
-        
-        # Validate access permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an image"
-            )
-        
-        # Get venue information for folder structure
-        venue_id = item.get('venue_id')
-        if not venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Menu item must have a venue_id"
-            )
-        
-        # Get venue to get workspace_id
-        venue_repo = get_repository_manager().get_repository('venue')
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Venue not found"
-            )
-        
-        workspace_id = venue.get('workspace_id')
-        if not workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue must have a workspace_id"
-            )
-        
-        # Upload image using storage service with workspace/venue structure
-        from app.services.storage_service import get_storage_service
-        storage_service = get_storage_service()
-        
-        # Generate unique identifier for this upload
-        import uuid
-        upload_id = str(uuid.uuid4())[:8]
-        
-        image_url = await storage_service.upload_menu_item_image(
-            file, upload_id, workspace_id, venue_id
-        )
-        
-        # Update item with new image URL
-        current_images = item.get('image_urls', [])
-        updated_images = current_images + [image_url]
-        
-        await repo.update(item_id, {"image_urls": updated_images})
-        
-        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
-        return ApiResponseDTO(
-            success=True,
-            message="Image uploaded successfully",
-            data={
-                "image_url": image_url,
-                "total_images": len(updated_images),
-                "item_id": item_id,
-                "workspace_id": workspace_id,
-                "venue_id": venue_id
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading item image: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload image"
-        )
-        
-        if not is_valid:
-            # Return specific error for venue not accepting orders
-            error_data = validation_data
-            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "error": "venue_not_accepting_orders",
-                        "message": error_data.get('message', 'Venue is not accepting orders'),
-                        "venue_name": error_data.get('venue_name'),
-                        "show_error_page": True
-                    }
-                )
 
-
-@router.post("/items/{item_id}/image", 
-             response_model=ApiResponseDTO,
-             summary="Upload single item image",
-             description="Upload a single image for menu item")
-async def upload_item_image(
-    item_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Upload a single menu item image with workspace/venue folder structure"""
-    try:
-        # Get menu item and validate access
-        repo = get_repository_manager().get_repository('menu_item')
-        item = await repo.get_by_id(item_id)
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Menu item not found"
-            )
-        
-        # Validate access permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an image"
-            )
-        
-        # Get venue information for folder structure
-        venue_id = item.get('venue_id')
-        if not venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Menu item must have a venue_id"
-            )
-        
-        # Get venue to get workspace_id
-        venue_repo = get_repository_manager().get_repository('venue')
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Venue not found"
-            )
-        
-        workspace_id = venue.get('workspace_id')
-        if not workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue must have a workspace_id"
-            )
-        
-        # Upload image using storage service with workspace/venue structure
-        from app.services.storage_service import get_storage_service
-        storage_service = get_storage_service()
-        
-        # Generate unique identifier for this upload
-        import uuid
-        upload_id = str(uuid.uuid4())[:8]
-        
-        image_url = await storage_service.upload_menu_item_image(
-            file, upload_id, workspace_id, venue_id
-        )
-        
-        # Update item with new image URL
-        current_images = item.get('image_urls', [])
-        updated_images = current_images + [image_url]
-        
-        await repo.update(item_id, {"image_urls": updated_images})
-        
-        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
-        return ApiResponseDTO(
-            success=True,
-            message="Image uploaded successfully",
-            data={
-                "image_url": image_url,
-                "total_images": len(updated_images),
-                "item_id": item_id,
-                "workspace_id": workspace_id,
-                "venue_id": venue_id
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading item image: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload image"
-        )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "error": error_data.get('error_type', 'validation_failed'),
-                        "message": error_data.get('message', 'Access validation failed')
-                    }
-                )
-
-
-@router.post("/items/{item_id}/image", 
-             response_model=ApiResponseDTO,
-             summary="Upload single item image",
-             description="Upload a single image for menu item")
-async def upload_item_image(
-    item_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
-):
-    """Upload a single menu item image with workspace/venue folder structure"""
-    try:
-        # Get menu item and validate access
-        repo = get_repository_manager().get_repository('menu_item')
-        item = await repo.get_by_id(item_id)
-        
-        if not item:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Menu item not found"
-            )
-        
-        # Validate access permissions
-        await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Validate file type
-        if not file.content_type or not file.content_type.startswith('image/'):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="File must be an image"
-            )
-        
-        # Get venue information for folder structure
-        venue_id = item.get('venue_id')
-        if not venue_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Menu item must have a venue_id"
-            )
-        
-        # Get venue to get workspace_id
-        venue_repo = get_repository_manager().get_repository('venue')
-        venue = await venue_repo.get_by_id(venue_id)
-        if not venue:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Venue not found"
-            )
-        
-        workspace_id = venue.get('workspace_id')
-        if not workspace_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Venue must have a workspace_id"
-            )
-        
-        # Upload image using storage service with workspace/venue structure
-        from app.services.storage_service import get_storage_service
-        storage_service = get_storage_service()
-        
-        # Generate unique identifier for this upload
-        import uuid
-        upload_id = str(uuid.uuid4())[:8]
-        
-        image_url = await storage_service.upload_menu_item_image(
-            file, upload_id, workspace_id, venue_id
-        )
-        
-        # Update item with new image URL
-        current_images = item.get('image_urls', [])
-        updated_images = current_images + [image_url]
-        
-        await repo.update(item_id, {"image_urls": updated_images})
-        
-        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
-        return ApiResponseDTO(
-            success=True,
-            message="Image uploaded successfully",
-            data={
-                "image_url": image_url,
-                "total_images": len(updated_images),
-                "item_id": item_id,
-                "workspace_id": workspace_id,
-                "venue_id": venue_id
-            }
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error uploading item image: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to upload image"
-        )
-        
-        repo = get_repository_manager().get_repository('menu_item')
-        
         if category_id and category_id != "None":
-            # Get items by category
             logger.debug(f"Getting items by category: {category_id}")
             items_data = await repo.get_by_category(venue_id, category_id)
         else:
-            # Get all items for venue
             logger.debug(f"Getting all items for venue: {venue_id}")
             items_data = await repo.get_by_venue(venue_id)
-        
+
         logger.debug(f"Retrieved {len(items_data)} raw items from database")
-        
-        # Filter only available items for public access
+
         available_items = [item for item in items_data if item.get('is_available', False)]
         logger.debug(f"Filtered to {len(available_items)} available items")
+
+        # Optional: Validate venue and table before showing menu
+        if table_id:
+            try:
+                logger.info(f"Validating venue and table: venue={venue_id}, table={table_id}")
+                is_valid, validation_data = await venue_validation_service.validate_venue_and_table_for_menu(
+                    venue_id, table_id
+                )
+                if not is_valid:
+                    raise HTTPException(status_code=400, detail="Invalid venue or table")
+            except HTTPException:
+                raise
+
+        return available_items
+
+    except HTTPException as http_exc:
+        logger.error(f"HTTPException occurred: {http_exc.detail}")
+        raise
+    except Exception as exc:
+        logger.exception("Unexpected error while retrieving public menu items")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@router.post("/items/{item_id}/image", 
+             response_model=ApiResponseDTO,
+             summary="Upload single item image",
+             description="Upload a single image for menu item")
+async def upload_item_image(
+    item_id: str,
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Upload a single menu item image with workspace/venue folder structure"""
+    try:
+        # Get menu item and validate access
+        repo = get_repository_manager().get_repository('menu_item')
+        item = await repo.get_by_id(item_id)
         
-        # Process items to ensure all required fields are present
-        try:
-            processed_items = process_menu_items_for_response(available_items)
-            logger.debug(f"Successfully processed {len(processed_items)} items")
-        except Exception as process_error:
-            logger.error(f"Error processing menu items: {process_error}")
+        if not item:
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error processing menu items: {str(process_error)}"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Menu item not found"
             )
+        
+        # Validate access permissions
+        await items_endpoint._validate_access_permissions(item, current_user)
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Get venue information for folder structure
+        venue_id = item.get('venue_id')
+        if not venue_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Menu item must have a venue_id"
+            )
+        
+        # Get venue to get workspace_id
+        venue_repo = get_repository_manager().get_repository('venue')
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        workspace_id = venue.get('workspace_id')
+        if not workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue must have a workspace_id"
+            )
+        
+        # Upload image using storage service with workspace/venue structure
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        
+        # Generate unique identifier for this upload
+        import uuid
+        upload_id = str(uuid.uuid4())[:8]
+        
+        image_url = await storage_service.upload_menu_item_image(
+            file, upload_id, workspace_id, venue_id
+        )
+        
+        # Update item with new image URL
+        current_images = item.get('image_urls', [])
+        updated_images = current_images + [image_url]
+        
+        await repo.update(item_id, {"image_urls": updated_images})
+        
+        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
+        return ApiResponseDTO(
+            success=True,
+            message="Image uploaded successfully",
+            data={
+                "image_url": image_url,
+                "total_images": len(updated_images),
+                "item_id": item_id,
+                "workspace_id": workspace_id,
+                "venue_id": venue_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading item image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image"
+        )
+        
+
+@router.post("/items/{item_id}/image", 
+             response_model=ApiResponseDTO,
+             summary="Upload single item image",
+             description="Upload a single image for menu item")
+async def upload_item_image(
+    item_id: str,
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Upload a single menu item image with workspace/venue folder structure"""
+    try:
+        # Get menu item and validate access
+        repo = get_repository_manager().get_repository('menu_item')
+        item = await repo.get_by_id(item_id)
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Menu item not found"
+            )
+        
+        # Validate access permissions
+        await items_endpoint._validate_access_permissions(item, current_user)
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Get venue information for folder structure
+        venue_id = item.get('venue_id')
+        if not venue_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Menu item must have a venue_id"
+            )
+        
+        # Get venue to get workspace_id
+        venue_repo = get_repository_manager().get_repository('venue')
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        workspace_id = venue.get('workspace_id')
+        if not workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue must have a workspace_id"
+            )
+        
+        # Upload image using storage service with workspace/venue structure
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        
+        # Generate unique identifier for this upload
+        import uuid
+        upload_id = str(uuid.uuid4())[:8]
+        
+        image_url = await storage_service.upload_menu_item_image(
+            file, upload_id, workspace_id, venue_id
+        )
+        
+        # Update item with new image URL
+        current_images = item.get('image_urls', [])
+        updated_images = current_images + [image_url]
+        
+        await repo.update(item_id, {"image_urls": updated_images})
+        
+        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
+        return ApiResponseDTO(
+            success=True,
+            message="Image uploaded successfully",
+            data={
+                "image_url": image_url,
+                "total_images": len(updated_images),
+                "item_id": item_id,
+                "workspace_id": workspace_id,
+                "venue_id": venue_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading item image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image"
+        )
+
+@router.post("/items/{item_id}/image", 
+             response_model=ApiResponseDTO,
+             summary="Upload single item image",
+             description="Upload a single image for menu item")
+async def upload_item_image(
+    item_id: str,
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+):
+    """Upload a single menu item image with workspace/venue folder structure"""
+    try:
+        # Get menu item and validate access
+        repo = get_repository_manager().get_repository('menu_item')
+        item = await repo.get_by_id(item_id)
+        
+        if not item:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Menu item not found"
+            )
+        
+        # Validate access permissions
+        await items_endpoint._validate_access_permissions(item, current_user)
+        
+        # Validate file type
+        if not file.content_type or not file.content_type.startswith('image/'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File must be an image"
+            )
+        
+        # Get venue information for folder structure
+        venue_id = item.get('venue_id')
+        if not venue_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Menu item must have a venue_id"
+            )
+        
+        # Get venue to get workspace_id
+        venue_repo = get_repository_manager().get_repository('venue')
+        venue = await venue_repo.get_by_id(venue_id)
+        if not venue:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Venue not found"
+            )
+        
+        workspace_id = venue.get('workspace_id')
+        if not workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Venue must have a workspace_id"
+            )
+        
+        # Upload image using storage service with workspace/venue structure
+        from app.services.storage_service import get_storage_service
+        storage_service = get_storage_service()
+        
+        # Generate unique identifier for this upload
+        import uuid
+        upload_id = str(uuid.uuid4())[:8]
+        
+        image_url = await storage_service.upload_menu_item_image(
+            file, upload_id, workspace_id, venue_id
+        )
+        
+        # Update item with new image URL
+        current_images = item.get('image_urls', [])
+        updated_images = current_images + [image_url]
+        
+        await repo.update(item_id, {"image_urls": updated_images})
+        
+        logger.info(f"Successfully uploaded image for menu item {item_id}: {image_url}")
+        return ApiResponseDTO(
+            success=True,
+            message="Image uploaded successfully",
+            data={
+                "image_url": image_url,
+                "total_images": len(updated_images),
+                "item_id": item_id,
+                "workspace_id": workspace_id,
+                "venue_id": venue_id
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading item image: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to upload image"
+        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -4722,27 +4414,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
         
-        # Create DTO objects
-        try:
-            items = []
-            for i, item in enumerate(processed_items):
-                try:
-                    dto_item = MenuItemResponseDTO(**item)
-                    items.append(dto_item)
-                except Exception as dto_error:
-                    logger.error(f"Error creating DTO for item {i} (id: {item.get('id', 'unknown')}): {dto_error}")
-                    logger.error(f"Item data: {item}")
-                    # Skip this item and continue with others
-                    continue
-            
-            logger.info(f"Successfully created {len(items)} DTO objects from {len(processed_items)} processed items")
-        except Exception as dto_error:
-            logger.error(f"Error creating MenuItemResponseDTO objects: {dto_error}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error creating response objects: {str(dto_error)}"
-            )
-
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -4838,20 +4509,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-        
-        logger.info(f"Retrieved {len(items)} public menu items for venue: {venue_id}")
-        return items
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error getting public venue menu items: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        # Return empty list instead of error for better UX
-        logger.warning(f"Returning empty menu items list due to error for venue: {venue_id}")
-        return []
 
 
 # =============================================================================
@@ -5492,17 +5149,6 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
             
-            await items_endpoint._validate_access_permissions(item, current_user)
-        
-        # Bulk update
-        updates = [(item_id, {"is_available": is_available}) for item_id in item_ids]
-        await repo.update_batch(updates)
-        
-        logger.info(f"Bulk updated availability for {len(item_ids)} items")
-        return ApiResponseDTO(
-            success=True,
-            message=f"Updated availability for {len(item_ids)} items"
-        )
 
 
 @router.post("/items/{item_id}/image", 
@@ -5611,50 +5257,6 @@ async def upload_item_image(
           detail=f"Menu item {item_id} not found"
 
         )
-
-       
-
-      await items_endpoint._validate_access_permissions(item, current_user)
-
-     
-
-    # Bulk update
-
-    updates = [(item_id, {"is_available": is_available}) for item_id in item_ids]
-
-    await repo.update_batch(updates)
-
-     
-
-    logger.info(f"Bulk updated availability for {len(item_ids)} items")
-
-    return ApiResponseDTO(
-
-      success=True,
-
-      message=f"Updated availability for {len(item_ids)} items"
-
-    )
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error bulk updating item availability: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Failed to update items"
-
-    )
-
-
 
 
 
@@ -5788,6 +5390,11 @@ async def toggle_category_items_availability(
         return ApiResponseDTO(
             success=True,
             message=f"Updated availability for {len(items_data)} items in category"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Something went wrong"
         )
 
 
