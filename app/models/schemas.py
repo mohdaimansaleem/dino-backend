@@ -344,7 +344,6 @@ class Table(BaseSchema, TimestampMixin):
     venue_id: str
     table_number: str = Field(..., description="Table number as string")
     capacity: int = Field(..., ge=1, le=20)
-    location: Optional[str] = Field(None, max_length=100)
     area_id: Optional[str] = Field(None, description="Table area ID")
     table_status: TableStatus = TableStatus.AVAILABLE
     is_active: bool = Field(default=True)

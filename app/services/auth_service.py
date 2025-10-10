@@ -112,9 +112,9 @@ class AuthService:
             # Get or create default operator role
             role_id = await self._ensure_default_role()
             
-            # Generate consistent UUID for user ID
-            import uuid
-            user_id = str(uuid.uuid4())
+            # Generate Firestore-style ID for user
+            from app.utils.id_generator import generate_user_id
+            user_id = generate_user_id()
             
             # Create user data
             user_dict = {
