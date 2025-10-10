@@ -401,6 +401,12 @@ connection_manager = ConnectionManager()
 async def authenticate_websocket_user(token: str) -> Optional[Dict[str, Any]]:
     """Authenticate WebSocket connection using JWT token"""
     try:
+        # Check if JWT auth is disabled (development mode)
+        from app.core.config import settings
+        if not settings.is_jwt_auth_enabled:
+            from app.core.security import get_development_user
+            return await get_development_user()
+        
         if not token:
             return None
         

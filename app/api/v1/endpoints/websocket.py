@@ -13,6 +13,114 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+@router.websocket("/")
+async def root_websocket_endpoint(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None, description="JWT authentication token"),
+    venue_id: Optional[str] = Query(None, description="Venue ID for venue-specific connection"),
+    user_id: Optional[str] = Query(None, description="User ID for user-specific connection")
+):
+    """
+    Root WebSocket endpoint that can handle both venue and user connections
+    
+    Usage:
+    - For venue connection: /ws?venue_id=VENUE_ID&token=TOKEN
+    - For user connection: /ws?user_id=USER_ID&token=TOKEN
+    """
+    try:
+        # Check if JWT auth is disabled (development mode)
+        from app.core.config import settings
+        if not settings.is_jwt_auth_enabled:
+            # Use development user
+            from app.core.security import get_development_user
+            user_data = await get_development_user()
+            logger.info("Using development user for WebSocket connection")
+        else:
+            # Authenticate user with JWT
+            if not token:
+                await websocket.close(code=1008, reason="Authentication token required")
+                return
+            
+            user_data = await authenticate_websocket_user(token)
+            if not user_data:
+                await websocket.close(code=1008, reason="Invalid authentication token")
+                return
+        
+        # Determine connection type
+        if venue_id:
+            # Venue connection
+            # Check if user has access to this venue
+            user_venue_id = user_data.get("venue_id")
+            user_role = user_data.get("role")
+            
+            # SuperAdmin can access any venue, others must match venue_id
+            if user_role != "superadmin" and user_venue_id != venue_id:
+                await websocket.close(code=1008, reason="Access denied to this venue")
+                return
+            
+            # Validate venue exists
+            from app.core.dependency_injection import get_repository_manager
+            repo_manager = get_repository_manager()
+            venue_repo = repo_manager.get_repository('venue')
+            
+            venue = await venue_repo.get_by_id(venue_id)
+            if not venue:
+                await websocket.close(code=1008, reason="Venue not found")
+                return
+            
+            if not venue.get("is_active", False):
+                await websocket.close(code=1008, reason="Venue is not active")
+                return
+            
+            # Connect to venue WebSocket
+            await connection_manager.connect_to_venue(websocket, venue_id, user_data)
+            logger.info(f"User {user_data.get('email')} connected to venue {venue_id} WebSocket via root endpoint")
+            
+        elif user_id:
+            # User connection
+            # Check if user can access this user_id
+            authenticated_user_id = user_data.get("id")
+            user_role = user_data.get("role")
+            
+            # Users can only access their own WebSocket, unless they're superadmin
+            if user_role != "superadmin" and authenticated_user_id != user_id:
+                await websocket.close(code=1008, reason="Access denied")
+                return
+            
+            # Connect to user WebSocket
+            await connection_manager.connect_user(websocket, user_id, user_data)
+            logger.info(f"User {user_data.get('email')} connected to personal WebSocket via root endpoint")
+            
+        else:
+            await websocket.close(code=1008, reason="Either venue_id or user_id must be provided")
+            return
+        
+        # Keep connection alive and handle messages
+        while True:
+            try:
+                # Wait for messages from client
+                message = await websocket.receive_text()
+                await connection_manager.handle_message(websocket, message)
+                
+            except WebSocketDisconnect:
+                logger.info(f"User {user_data.get('email')} disconnected from WebSocket")
+                break
+            except Exception as e:
+                logger.error(f"Error in root WebSocket: {e}")
+                break
+    
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"Root WebSocket error: {e}")
+        if websocket.client_state.name != "DISCONNECTED":
+            await websocket.close(code=1011, reason="Internal server error")
+    
+    finally:
+        # Clean up connection
+        await connection_manager.disconnect(websocket)
+
+
 @router.websocket("/venue/{venue_id}")
 async def venue_websocket_endpoint(
     websocket: WebSocket,
@@ -31,15 +139,23 @@ async def venue_websocket_endpoint(
     user_data = None
     
     try:
-        # Authenticate user
-        if not token:
-            await websocket.close(code=1008, reason="Authentication token required")
-            return
-        
-        user_data = await authenticate_websocket_user(token)
-        if not user_data:
-            await websocket.close(code=1008, reason="Invalid authentication token")
-            return
+        # Check if JWT auth is disabled (development mode)
+        from app.core.config import settings
+        if not settings.is_jwt_auth_enabled:
+            # Use development user
+            from app.core.security import get_development_user
+            user_data = await get_development_user()
+            logger.info("Using development user for WebSocket connection")
+        else:
+            # Authenticate user with JWT
+            if not token:
+                await websocket.close(code=1008, reason="Authentication token required")
+                return
+            
+            user_data = await authenticate_websocket_user(token)
+            if not user_data:
+                await websocket.close(code=1008, reason="Invalid authentication token")
+                return
         
         # Check if user has access to this venue
         user_venue_id = user_data.get("venue_id")
@@ -112,15 +228,23 @@ async def user_websocket_endpoint(
     user_data = None
     
     try:
-        # Authenticate user
-        if not token:
-            await websocket.close(code=1008, reason="Authentication token required")
-            return
-        
-        user_data = await authenticate_websocket_user(token)
-        if not user_data:
-            await websocket.close(code=1008, reason="Invalid authentication token")
-            return
+        # Check if JWT auth is disabled (development mode)
+        from app.core.config import settings
+        if not settings.is_jwt_auth_enabled:
+            # Use development user
+            from app.core.security import get_development_user
+            user_data = await get_development_user()
+            logger.info("Using development user for WebSocket connection")
+        else:
+            # Authenticate user with JWT
+            if not token:
+                await websocket.close(code=1008, reason="Authentication token required")
+                return
+            
+            user_data = await authenticate_websocket_user(token)
+            if not user_data:
+                await websocket.close(code=1008, reason="Invalid authentication token")
+                return
         
         # Check if user can access this user_id
         authenticated_user_id = user_data.get("id")
@@ -260,6 +384,26 @@ async def get_venue_connections(venue_id: str):
         )
 
 
+@router.get("/auth-status")
+async def get_websocket_auth_status():
+    """Get WebSocket authentication status for debugging"""
+    from app.core.config import settings
+    return {
+        "success": True,
+        "data": {
+            "jwt_auth_enabled": settings.is_jwt_auth_enabled,
+            "environment": settings.ENVIRONMENT,
+            "auth_mode": "JWT" if settings.is_jwt_auth_enabled else "Development",
+            "dev_user_id": settings.DEV_USER_ID if not settings.is_jwt_auth_enabled else None,
+            "websocket_endpoints": {
+                "venue": "/api/v1/ws/venue/{venue_id}",
+                "user": "/api/v1/ws/user/{user_id}",
+                "token_required": settings.is_jwt_auth_enabled
+            }
+        }
+    }
+
+
 @router.post("/test/order-notification")
 async def test_order_notification(test_data: dict):
     """Test endpoint to send a sample order notification"""
@@ -291,10 +435,13 @@ async def test_order_notification(test_data: dict):
         # Send test notification
         await connection_manager.send_order_notification(sample_order, "order_created")
         
+        logger.info(f"Test notification sent to venue {venue_id} with {connection_manager.get_venue_connections_count(venue_id)} active connections")
+        
         return {
             "success": True,
             "message": f"Test order notification sent to venue {venue_id}",
-            "data": sample_order
+            "data": sample_order,
+            "active_connections": connection_manager.get_venue_connections_count(venue_id)
         }
         
     except HTTPException:

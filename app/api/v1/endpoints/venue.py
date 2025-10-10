@@ -449,8 +449,9 @@ async def get_public_venue(venue_id: str):
 # WORKSPACE VENUS API ENDPOINTS
 # =============================================================================
 
+# DINO GET
 @router.get("/workspace/{workspace_id}/venues", 
-            response_model=List[VenueWorkspaceListDTO],
+            response_model=List[Dict[str, Any]],
             summary="Get venues by workspace ID",
             description="Get simplified venue list for workspace (Venus API)")
 async def get_venues_by_workspace(
@@ -466,11 +467,9 @@ async def get_venues_by_workspace(
         repo = get_venue_repo()
         venues_data = await repo.get_by_workspace(workspace_id)
         
-        # Convert to simplified venue DTOs with only required data
+        # Convert to simplified venue objects with only required data
         venues = []
         for venue in venues_data:
-            venue = clean_venue_status(venue)
-            
             # Create simplified location info
             location_info = {}
             if venue.get('location'):
@@ -482,24 +481,19 @@ async def get_venues_by_workspace(
                     'postal_code': venue['location'].get('postal_code', '')
                 }
             
-            # Determine is_open based on status - true if status is 'active', false otherwise
-            venue_status = venue.get('status', VenueStatus.ACTIVE)
-            is_open = venue_status == VenueStatus.ACTIVE.value or venue_status == VenueStatus.ACTIVE
-            
-            # Create simplified venue DTO
-            simplified_venue = VenueWorkspaceListDTO(
-                id=venue['id'],
-                name=venue.get('name', ''),
-                description=venue.get('description'),
-                location=location_info,
-                phone=venue.get('phone'),
-                email=venue.get('email'),
-                is_active=venue.get('is_active', False),
-                is_open=is_open,
-                subscription_status=venue.get('subscription_status', SubscriptionStatus.ACTIVE),
-                created_at=venue.get('created_at', datetime.utcnow()),
-                updated_at=venue.get('updated_at', datetime.utcnow())
-            )
+            # Create simplified venue object (remove status and subscription_status)
+            simplified_venue = {
+                'id': venue['id'],
+                'name': venue.get('name', ''),
+                'description': venue.get('description'),
+                'location': location_info,
+                'phone': venue.get('phone'),
+                'email': venue.get('email'),
+                'is_active': venue.get('is_active', False),
+                'is_open': venue.get('status', VenueStatus.ACTIVE),
+                'created_at': venue.get('created_at', datetime.utcnow()),
+                'updated_at': venue.get('updated_at', datetime.utcnow())
+            }
             venues.append(simplified_venue)
         
         logger.info(f"Retrieved {len(venues)} simplified venues for workspace: {workspace_id}")
@@ -1000,8 +994,6 @@ async def get_venue_users(
 ):
     """Get all users assigned to a specific venue with complete role information"""
     try:
-        # Validate venue access
-        venue = await venues_endpoint.get_item(venue_id, current_user)
         
         # Get user repository
         from app.core.dependency_injection import get_repository_manager
@@ -1019,9 +1011,6 @@ async def get_venue_users(
         for user in venue_users:
             # Get role information
             role_id = user.get('role_id')
-            role_name = 'operator'  # Default fallback
-            role_display_name = 'Operator'  # Default fallback
-            
             if role_id:
                 try:
                     role = await role_repo.get_by_id(role_id)
@@ -1034,15 +1023,12 @@ async def get_venue_users(
             # Create user_name from first_name and last_name
             first_name = user.get('first_name', '')
             last_name = user.get('last_name', '')
-            user_name = f"{first_name} {last_name}".strip() or user.get('email', 'Unknown User')
             
             # Determine status from is_active
             is_active = user.get('is_active', True)
-            status = 'active' if is_active else 'inactive'
             
             # Format last login
             last_login = user.get('last_login')
-            last_logged_in = None
             if last_login:
                 # Convert to ISO string if it's a datetime object
                 if hasattr(last_login, 'isoformat'):
@@ -1052,23 +1038,12 @@ async def get_venue_users(
             
             formatted_user = {
                 "id": user.get('id'),
-                "email": user.get('email'),
-                "phone": user.get('phone'),
-                "user_name": user_name,
-                "first_name": first_name,
-                "last_name": last_name,
-                "role": role_name,
+                "name": first_name+" "+last_name,
                 "role_display_name": role_display_name,
-                "last_logged_in": last_logged_in,
-                "status": status,
                 "is_active": is_active,
-                "venue_id": venue_id,
-                "workspace_id": user.get('workspace_id'),
                 "created_at": user.get('created_at'),
                 "updated_at": user.get('updated_at'),
-                # Legacy fields for backward compatibility
                 "role_id": role_id,
-                "is_verified": user.get('is_verified', False),
                 "last_login": last_login,
             }
             formatted_users.append(formatted_user)

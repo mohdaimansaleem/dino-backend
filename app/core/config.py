@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     REQUIRE_STRONG_PASSWORDS: bool = Field(default=True, description="Enforce strong password policy")
     
     # JWT Authentication Control
-    JWT_AUTH: bool = Field(default=False, description="Enable JWT authentication (True) or disable for GCP auth (False)")
+    JWT_AUTH: bool = Field(default=True, description="Enable JWT authentication (True) or disable for GCP auth (False)")
     
     # Development User (when JWT_AUTH=False)
     DEV_USER_ID: str = Field(default="dev-user-123", description="Default user ID for development mode")

@@ -293,6 +293,9 @@ class PublicOrderingService:
             if order_data.get('table_id'):
                 await self._update_table_status(order_data['table_id'], 'occupied')
             
+            # Send WebSocket notification for new order
+            await self._send_order_creation_notification(order_record)
+            
             logger.info(f"Public order created: {order_id} for venue: {order_data['venue_id']}")
             
             return {
@@ -381,6 +384,37 @@ class PublicOrderingService:
         timestamp = datetime.utcnow().strftime("%Y%m%d%H%M")
         random_suffix = str(uuid.uuid4())[:6].upper()
         return f"PUB-{timestamp}-{random_suffix}"
+    
+    async def _send_order_creation_notification(self, order_data: Dict[str, Any]):
+        """
+        Send real-time notification when order is created via public interface
+        """
+        try:
+            from app.core.websocket_manager import connection_manager
+            
+            # Get table number if available
+            table_number = None
+            table_id = order_data.get('table_id')
+            if table_id:
+                table_repo = self.repo_manager.get_repository('table')
+                table = await table_repo.get_by_id(table_id)
+                if table:
+                    table_number = table.get('table_number')
+            
+            # Prepare order data with table number for notification
+            notification_data = {
+                **order_data,
+                'table_number': table_number
+            }
+            
+            # Send WebSocket notification to venue users
+            await connection_manager.send_order_notification(notification_data, "order_created")
+            
+            logger.info(f"WebSocket notification sent for public order {order_data.get('order_number')} in venue {order_data.get('venue_id')}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send order creation notification for public order: {e}")
+            # Don't fail the order creation if notification fails
 
 
 # Singleton instance

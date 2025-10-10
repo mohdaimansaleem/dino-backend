@@ -163,14 +163,14 @@ class WorkspacesEndpoint(BaseEndpoint[Workspace, WorkspaceCreateDTO, WorkspaceUp
     def _generate_workspace_name(self, display_name: str) -> str:
         """Generate unique workspace name from display name"""
         import re
-        import uuid
+        from app.utils.id_generator import generate_firestore_id
         
         # Convert to lowercase and replace spaces/special chars with underscores
         name = re.sub(r'[^a-zA-Z0-9\s]', '', display_name.lower())
         name = re.sub(r'\s+', '_', name.strip())
         
-        # Add unique suffix
-        unique_suffix = str(uuid.uuid4())[:8]
+        # Add unique suffix using Firestore ID (first 8 chars)
+        unique_suffix = generate_firestore_id()[:8]
         return f"{name}_{unique_suffix}"
     
     async def _validate_create_permissions(self, 

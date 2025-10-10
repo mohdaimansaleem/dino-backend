@@ -772,30 +772,39 @@ items_endpoint = MenuItemsEndpoint()
 # MENU CATEGORIES ENDPOINTS
 # =============================================================================
 
+# DINO GET
 @router.get("/categories", 
-            response_model=PaginatedResponseDTO,
+            response_model=List[Dict[str, Any]],
             summary="Get menu categories",
-            description="Get paginated list of menu categories")
+            description="Get list of menu categories")
 async def get_menu_categories(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Get menu categories with pagination and filtering"""
-    filters = {}
-    if venue_id:
-        filters['venue_id'] = venue_id
-    if is_active is not None:
-        filters['is_active'] = is_active
-    
-    return await categories_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        filters=filters,
-        current_user=current_user
-    )
+    """Get menu categories with filtering"""
+    try:
+        repo = get_repository_manager().get_repository('menu_category')
+        
+        # Build filters
+        if venue_id:
+            categories_data = await repo.get_by_venue(venue_id)
+        else:
+            categories_data = await repo.get_all()
+        
+        # Apply is_active filter if specified
+        if is_active is not None:
+            categories_data = [cat for cat in categories_data if cat.get('is_active') == is_active]
+        
+        # Return direct array without wrapper
+        return categories_data
+        
+    except Exception as e:
+        logger.error(f"Error getting menu categories: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get menu categories"
+        )
 
 
 @router.post("/categories", 
@@ -1515,13 +1524,12 @@ async def upload_item_image(
 # MENU ITEMS ENDPOINTS
 # =============================================================================
 
+# DINO GET
 @router.get("/items", 
-            response_model=PaginatedResponseDTO,
+            response_model=List[Dict[str, Any]],
             summary="Get menu items",
-            description="Get paginated list of menu items")
+            description="Get list of menu items")
 async def get_menu_items(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
     category_id: Optional[str] = Query(None, description="Filter by category ID"),
     is_available: Optional[bool] = Query(None, description="Filter by availability"),
@@ -1529,25 +1537,35 @@ async def get_menu_items(
     spice_level: Optional[SpiceLevel] = Query(None, description="Filter by spice level"),
     current_user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get menu items with pagination and filtering"""
-    filters = {}
-    if venue_id:
-        filters['venue_id'] = venue_id
-    if category_id:
-        filters['category_id'] = category_id
-    if is_available is not None:
-        filters['is_available'] = is_available
-    if is_vegetarian is not None:
-        filters['is_vegetarian'] = is_vegetarian
-    if spice_level:
-        filters['spice_level'] = spice_level.value
-    
-    return await items_endpoint.get_items(
-        page=page,
-        page_size=page_size,
-        filters=filters,
-        current_user=current_user
-    )
+    """Get menu items with filtering"""
+    try:
+        repo = get_repository_manager().get_repository('menu_item')
+        
+        # Get items based on filters
+        if venue_id:
+            items_data = await repo.get_by_venue(venue_id)
+        else:
+            items_data = await repo.get_all()
+        
+        # Apply additional filters
+        if category_id:
+            items_data = [item for item in items_data if item.get('category_id') == category_id]
+        if is_available is not None:
+            items_data = [item for item in items_data if item.get('is_available') == is_available]
+        if is_vegetarian is not None:
+            items_data = [item for item in items_data if item.get('is_vegetarian') == is_vegetarian]
+        if spice_level:
+            items_data = [item for item in items_data if item.get('spice_level') == spice_level.value]
+        
+        # Return direct array without wrapper
+        return items_data
+        
+    except Exception as e:
+        logger.error(f"Error getting menu items: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get menu items"
+        )
 
 
 @router.post("/items", 
