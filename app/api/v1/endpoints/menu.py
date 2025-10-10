@@ -2928,36 +2928,6 @@ async def upload_item_image(
 
 # =============================================================================
 
-@router.get("/public/validate-qr-access", 
-             response_model=Dict[str, Any],
-             summary="Validate QR code access",
-             description="Validate QR code and return venue/table info if valid for menu access")
-async def validate_qr_code_access(qr_code: str = Query(..., description="QR code to validate")):
-    """Validate QR code and return venue/table information if valid"""
-    try:
-        # Import validation service
-        from app.services.venue_validation_service import venue_validation_service
-        
-        # Validate QR code access
-        is_valid, validation_data = await venue_validation_service.validate_qr_code_access(qr_code)
-        
-        if not is_valid:
-            # Return specific error for venue not accepting orders
-            error_data = validation_data
-            if error_data.get('error_type') in ['venue_inactive', 'venue_not_operational']:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail={
-                        "error": "venue_not_accepting_orders",
-                        "message": error_data.get('message', 'Venue is not accepting orders'),
-                        "venue_name": error_data.get('venue_name'),
-                        "show_error_page": True
-                    }
-                )
-    except HTTPException:
-        raise
-
-
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
              summary="Upload single item image",
@@ -4865,57 +4835,6 @@ async def upload_item_image(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to upload image"
         )
-
-
-@router.get("/venues/{venue_id}/search", 
-
-      response_model=List[MenuItemResponseDTO],
-
-      summary="Search menu items",
-
-      description="Search menu items within a venue")
-
-async def search_venue_menu_items(
-
-  venue_id: str,
-
-  q: str = Query(..., min_length=2, description="Search query"),
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
-):
-
-  """Search menu items within a venue"""
-
-  try:
-
-    items = await items_endpoint.search_menu_items(venue_id, q, current_user)
-
-     
-
-    logger.info(f"Menu search performed in venue {venue_id}: '{q}' - {len(items)} results")
-
-    return items
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error searching menu items: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Search failed"
-
-    )
-
-
 
 
 

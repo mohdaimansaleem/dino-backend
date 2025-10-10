@@ -727,85 +727,10 @@ async def get_role_statistics(
             detail="Failed to get role statistics"
         )
 
-@router.get("/check-name", 
-            response_model=Dict[str, bool],
-            summary="Check role name availability",
-            description="Check if role name is available")
-async def check_role_name_availability(
-    name: str = Query(..., description="Role name to check"),
-    workspace_id: Optional[str] = Query(None, description="Workspace ID"),
-    exclude_id: Optional[str] = Query(None, description="Role ID to exclude from check")
-):
-    """Check if role name is available"""
-    try:
-        existing_role = await role_repo.get_by_name(name)
-        
-        # If excluding a specific role ID, check if it's the same role
-        if existing_role and exclude_id and existing_role.get('id') == exclude_id:
-            return {"available": True}
-        
-        return {"available": existing_role is None}
-        
-    except Exception as e:
-        logger.error(f"Error checking role name availability: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to check role name availability"
-        )
-
 def get_permission_repo():
     """Get permission repository instance"""
     from app.api.v1.endpoints.permissions import PermissionRepository
     return PermissionRepository()
-
-# =============================================================================
-# SIMPLIFIED ROLE-PERMISSION ASSIGNMENT (NO AUTH)
-# =============================================================================
-
-@router.post("/{role_id}/assign-permission", 
-             response_model=ApiResponse,
-             summary="Assign single permission to role",
-             description="Assign a single permission to a role (NO AUTH - for seeding)")
-async def assign_single_permission_to_role(
-    role_id: str,
-    permission_id: str = Query(..., description="Permission ID to assign")
-):
-    """Assign a single permission to role (simplified for seeding)"""
-    try:
-        # Validate role exists
-        role = await role_repo.get_by_id(role_id)
-        if not role:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Role not found"
-            )
-        
-        # Validate permission exists
-        perm_repo = get_permission_repo()
-        permission = await perm_repo.get_by_id(permission_id)
-        if not permission:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Permission not found"
-            )
-        
-        # Add permission to role
-        await role_repo.add_permissions(role_id, [permission_id])
-        
-        logger.info(f"Permission {permission_id} assigned to role {role_id}")
-        return ApiResponse(
-            success=True,
-            message="Permission assigned successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error assigning permission to role: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to assign permission"
-        )
 
 # =============================================================================
 # SETUP ENDPOINTS (NO AUTHENTICATION)

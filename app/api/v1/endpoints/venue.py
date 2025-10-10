@@ -1554,56 +1554,6 @@ async def activate_venue(
 
 
 
-@router.get("/search/text", 
-
-      response_model=List[VenueResponseDTO],
-
-      summary="Search venues",
-
-      description="Search venues by name, description, or cuisine")
-
-async def search_venues(
-
-  q: str = Query(..., min_length=2, description="Search query"),
-
-  current_user: Dict[str, Any] = Depends(get_current_user)
-
-):
-
-  """Search venues by text"""
-
-  try:
-
-    venues = await venues_endpoint.search_venues_by_text(q, current_user)
-
-     
-
-    logger.info(f"Venue search performed: '{q}' - {len(venues)} results")
-
-    return venues
-
-     
-
-  except HTTPException:
-
-    raise
-
-  except Exception as e:
-
-    logger.error(f"Error searching venues: {e}")
-
-    raise HTTPException(
-
-      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-
-      detail="Search failed"
-
-    )
-
-
-
-
-
 @router.get("/filter/subscription/{status}", 
 
       response_model=List[VenueResponseDTO],
