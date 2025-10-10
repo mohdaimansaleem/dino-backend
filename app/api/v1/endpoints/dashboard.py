@@ -38,7 +38,25 @@ async def get_superadmin_dashboard(current_user: Dict[str, Any] = Depends(get_cu
         )
     
     try:
-        dashboard_data = await _get_dashboard_service().get_superadmin_dashboard_data(current_user)
+        # Get system-wide data and format it for UI
+        system_data = await _get_dashboard_service().get_superadmin_dashboard_data(current_user)
+        
+        # Transform to match UI expectations (SuperAdminDashboardResponse format)
+        dashboard_data = {
+            "system_stats": system_data["system_stats"],
+            "workspaces": system_data.get("workspaces", []),
+            "venue_performance": system_data.get("venue_performance", []),
+            "top_menu_items": system_data.get("top_menu_items", []),
+            "recent_activity": system_data.get("recent_activity", []),
+            "analytics": system_data.get("analytics", {
+                "order_status_breakdown": {},
+                "table_status_breakdown": {},
+                "revenue_by_venue": {}
+            }),
+            "is_superadmin_view": True,
+            "current_venue_id": None
+        }
+        
         logger.info(f"Super admin dashboard data retrieved for user: {current_user.get('id')}")
         
         return ApiResponse(
@@ -71,7 +89,9 @@ async def get_admin_dashboard(current_user: Dict[str, Any] = Depends(get_current
         )
     
     # Check if user has venue assigned (except for superadmin)
-    venue_id = current_user.get('venue_id')
+    venue_ids = current_user.get('venue_ids', [])
+    venue_id = venue_ids[0] if venue_ids else None
+    
     if user_role != "superadmin" and not venue_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -112,7 +132,9 @@ async def get_operator_dashboard(current_user: Dict[str, Any] = Depends(get_curr
         )
     
     # Check if user has venue assigned (except for superadmin)
-    venue_id = current_user.get('venue_id')
+    venue_ids = current_user.get('venue_ids', [])
+    venue_id = venue_ids[0] if venue_ids else None
+    
     if user_role != "superadmin" and not venue_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -145,7 +167,8 @@ async def get_dashboard(current_user: Dict[str, Any] = Depends(get_current_user)
         # Get user role from role_id
         from app.core.security import _get_user_role
         user_role = await _get_user_role(current_user)
-        venue_id = current_user.get('venue_id')
+        venue_ids = current_user.get('venue_ids', [])
+        venue_id = venue_ids[0] if venue_ids else None
         
         logger.info(f"Dashboard requested by user: {current_user.get('id')}, role: {user_role}")
         
@@ -198,7 +221,8 @@ async def get_dashboard_stats(current_user: Dict[str, Any] = Depends(get_current
         # Get user role from role_id
         from app.core.security import _get_user_role
         user_role = await _get_user_role(current_user)
-        venue_id = current_user.get('venue_id')
+        venue_ids = current_user.get('venue_ids', [])
+        venue_id = venue_ids[0] if venue_ids else None
         
         # Return basic stats that can be used across different dashboards
         stats = {
@@ -249,7 +273,8 @@ async def get_live_order_status(venue_id: str, current_user: Dict[str, Any] = De
         )
     
     # Check venue access (except for superadmin)
-    if user_role != "superadmin" and current_user.get('venue_id') != venue_id:
+    user_venue_ids = current_user.get('venue_ids', [])
+    if user_role != "superadmin" and venue_id not in user_venue_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. You can only view data for your assigned venue."
@@ -288,7 +313,8 @@ async def get_live_table_status(venue_id: str, current_user: Dict[str, Any] = De
         )
     
     # Check venue access (except for superadmin)
-    if user_role != "superadmin" and current_user.get('venue_id') != venue_id:
+    user_venue_ids = current_user.get('venue_ids', [])
+    if user_role != "superadmin" and venue_id not in user_venue_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. You can only view data for your assigned venue."
@@ -312,7 +338,7 @@ async def get_live_table_status(venue_id: str, current_user: Dict[str, Any] = De
 
 @router.get("/dashboard/venue/{venue_id}", response_model=ApiResponse)
 async def get_venue_dashboard(venue_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Get dashboard data for a specific venue with only stored database data"""
+    """Get dashboard data for a specific venue with enhanced data for SuperAdmin"""
     logger.info(f"Venue dashboard requested for venue: {venue_id} by user: {current_user.get('id')}")
     
     # Get user role from role_id
@@ -327,14 +353,20 @@ async def get_venue_dashboard(venue_id: str, current_user: Dict[str, Any] = Depe
         )
     
     # Check venue access (except for superadmin)
-    if user_role != "superadmin" and current_user.get('venue_id') != venue_id:
+    user_venue_ids = current_user.get('venue_ids', [])
+    if user_role != "superadmin" and venue_id not in user_venue_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied. You can only view data for your assigned venue."
         )
     
     try:
-        dashboard_data = await _get_dashboard_service().get_venue_dashboard_data(venue_id, current_user)
+        # Both Admin and SuperAdmin get venue-specific data
+        # SuperAdmin gets data in UI-expected format, Admin gets regular venue data
+        if user_role == "superadmin":
+            dashboard_data = await _get_dashboard_service().get_superadmin_enhanced_venue_data(venue_id, current_user)
+        else:
+            dashboard_data = await _get_dashboard_service().get_venue_dashboard_data(venue_id, current_user)
         
         return ApiResponse(
             success=True,

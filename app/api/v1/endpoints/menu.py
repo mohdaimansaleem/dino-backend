@@ -1,27 +1,53 @@
 """
+
 Enhanced Menu Management API Endpoints
+
 Complete CRUD for menu categories and items with venue isolation and advanced features
+
 """
+
 from typing import List, Dict, Any, Optional
+
 from datetime import datetime
+
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Query
 
-from app.models.schemas import MenuCategory, MenuItem, SpiceLevel
+
+
+from  app.models.schemas import MenuCategory, MenuItem, SpiceLevel
+
 from app.models.dto import (
-    MenuCategoryCreateDTO, MenuCategoryUpdateDTO, MenuCategoryResponseDTO,
-    MenuItemCreateDTO, MenuItemUpdateDTO, MenuItemResponseDTO,
-    ApiResponseDTO, PaginatedResponseDTO
+
+  MenuCategoryCreateDTO, MenuCategoryUpdateDTO, MenuCategoryResponseDTO,
+
+  MenuItemCreateDTO, MenuItemUpdateDTO, MenuItemResponseDTO,
+
+  ApiResponseDTO, PaginatedResponseDTO
+
 )
+
 # Removed base endpoint dependency
+
 from app.core.base_endpoint import WorkspaceIsolatedEndpoint
+
 from app.core.dependency_injection import get_repository_manager
+
 from app.core.security import get_current_user, get_current_admin_user, require_venue_access
+
 from app.core.logging_config import get_logger
 from app.core.error_recovery import ErrorRecoveryMixin
 from app.utils.menu_item_utils import ensure_menu_item_fields, process_menu_items_for_response
 
+from app.utils.menu_item_utils import ensure_menu_item_fields, process_menu_items_for_response
+
+
+
 logger = get_logger(__name__)
+
 router = APIRouter()
+
+
+
 
 
 class MenuCategoriesEndpoint(WorkspaceIsolatedEndpoint[MenuCategory, MenuCategoryCreateDTO, MenuCategoryUpdateDTO]):
@@ -764,12 +790,15 @@ async def upload_item_image(
 
 
 # Initialize endpoints
+
 categories_endpoint = MenuCategoriesEndpoint()
+
 items_endpoint = MenuItemsEndpoint()
 
 
-# =============================================================================
-# MENU CATEGORIES ENDPOINTS
+
+
+
 # =============================================================================
 
 # DINO GET
@@ -808,51 +837,95 @@ async def get_menu_categories(
 
 
 @router.post("/categories", 
-             response_model=ApiResponseDTO,
-             status_code=status.HTTP_201_CREATED,
-             summary="Create menu category",
-             description="Create a new menu category")
+
+       response_model=ApiResponseDTO,
+
+       status_code=status.HTTP_201_CREATED,
+
+       summary="Create menu category",
+
+       description="Create a new menu category")
+
 async def create_menu_category(
-    category_data: MenuCategoryCreateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  category_data: MenuCategoryCreateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
-    """Create a new menu category"""
-    return await categories_endpoint.create_item(category_data, current_user)
+
+  """Create a new menu category"""
+
+  return await categories_endpoint.create_item(category_data, current_user)
+
+
+
 
 
 @router.get("/categories/{category_id}", 
-            response_model=MenuCategoryResponseDTO,
-            summary="Get menu category by ID",
-            description="Get specific menu category by ID")
+
+      response_model=MenuCategoryResponseDTO,
+
+      summary="Get menu category by ID",
+
+      description="Get specific menu category by ID")
+
 async def get_menu_category(
-    category_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  category_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get menu category by ID"""
-    return await categories_endpoint.get_item(category_id, current_user)
+
+  """Get menu category by ID"""
+
+  return await categories_endpoint.get_item(category_id, current_user)
+
+
+
 
 
 @router.put("/categories/{category_id}", 
-            response_model=ApiResponseDTO,
-            summary="Update menu category",
-            description="Update menu category information")
+
+      response_model=ApiResponseDTO,
+
+      summary="Update menu category",
+
+      description="Update menu category information")
+
 async def update_menu_category(
-    category_id: str,
-    category_update: MenuCategoryUpdateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  category_id: str,
+
+  category_update: MenuCategoryUpdateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
-    """Update menu category information"""
-    return await categories_endpoint.update_item(category_id, category_update, current_user)
+
+  """Update menu category information"""
+
+  return await categories_endpoint.update_item(category_id, category_update, current_user)
+
+
+
 
 
 @router.delete("/categories/{category_id}", 
-               response_model=ApiResponseDTO,
-               summary="Delete menu category",
-               description="Delete menu category permanently")
+
+        response_model=ApiResponseDTO,
+
+        summary="Delete menu category",
+
+        description="Deactivate menu category (soft delete)")
+
 async def delete_menu_category(
-    category_id: str,
-    force: bool = Query(False, description="Force delete even if category has menu items"),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  category_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Delete menu category permanently"""
     try:
@@ -1289,13 +1362,21 @@ async def upload_item_image(
 
 
 @router.post("/categories/{category_id}/image", 
-             response_model=ApiResponseDTO,
-             summary="Upload category image",
-             description="Upload image for menu category")
+
+       response_model=ApiResponseDTO,
+
+       summary="Upload category image",
+
+       description="Upload image for menu category")
+
 async def upload_category_image(
-    category_id: str,
-    file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  category_id: str,
+
+  file: UploadFile = File(...),
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Upload category image"""
     try:
@@ -1423,6 +1504,7 @@ async def upload_item_image(
             detail="Failed to upload image"
         )
 
+  """Upload category image"""
 
 @router.post("/items/{item_id}/image", 
              response_model=ApiResponseDTO,
@@ -1568,51 +1650,177 @@ async def get_menu_items(
         )
 
 
-@router.post("/items", 
-             response_model=ApiResponseDTO,
-             status_code=status.HTTP_201_CREATED,
-             summary="Create menu item",
-             description="Create a new menu item")
-async def create_menu_item(
-    item_data: MenuItemCreateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+
+
+# =============================================================================
+
+# MENU ITEMS ENDPOINTS
+
+# =============================================================================
+
+
+
+@router.get("/items", 
+
+      response_model=PaginatedResponseDTO,
+
+      summary="Get menu items",
+
+      description="Get paginated list of menu items")
+
+async def get_menu_items(
+
+  page: int = Query(1, ge=1, description="Page number"),
+
+  page_size: int = Query(10, ge=1, le=100, description="Items per page"),
+
+  venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
+
+  category_id: Optional[str] = Query(None, description="Filter by category ID"),
+
+  is_available: Optional[bool] = Query(None, description="Filter by availability"),
+
+  is_vegetarian: Optional[bool] = Query(None, description="Filter by vegetarian"),
+
+  spice_level: Optional[SpiceLevel] = Query(None, description="Filter by spice level"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Create a new menu item"""
-    return await items_endpoint.create_item(item_data, current_user)
+
+  """Get menu items with pagination and filtering"""
+
+  filters = {}
+
+  if venue_id:
+
+    filters['venue_id'] = venue_id
+
+  if category_id:
+
+    filters['category_id'] = category_id
+
+  if is_available is not None:
+
+    filters['is_available'] = is_available
+
+  if is_vegetarian is not None:
+
+    filters['is_vegetarian'] = is_vegetarian
+
+  if spice_level:
+
+    filters['spice_level'] = spice_level.value
+
+   
+
+  return await items_endpoint.get_items(
+
+    page=page,
+
+    page_size=page_size,
+
+    filters=filters,
+
+    current_user=current_user
+
+  )
+
+
+
+
+
+@router.post("/items", 
+
+       response_model=ApiResponseDTO,
+
+       status_code=status.HTTP_201_CREATED,
+
+       summary="Create menu item",
+
+       description="Create a new menu item")
+
+async def create_menu_item(
+
+  item_data: MenuItemCreateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+):
+
+  """Create a new menu item"""
+
+  return await items_endpoint.create_item(item_data, current_user)
+
+
+
 
 
 @router.get("/items/{item_id}", 
-            response_model=MenuItemResponseDTO,
-            summary="Get menu item by ID",
-            description="Get specific menu item by ID")
+
+      response_model=MenuItemResponseDTO,
+
+      summary="Get menu item by ID",
+
+      description="Get specific menu item by ID")
+
 async def get_menu_item(
-    item_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  item_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get menu item by ID"""
-    return await items_endpoint.get_item(item_id, current_user)
+
+  """Get menu item by ID"""
+
+  return await items_endpoint.get_item(item_id, current_user)
+
+
+
 
 
 @router.put("/items/{item_id}", 
-            response_model=ApiResponseDTO,
-            summary="Update menu item",
-            description="Update menu item information")
+
+      response_model=ApiResponseDTO,
+
+      summary="Update menu item",
+
+      description="Update menu item information")
+
 async def update_menu_item(
-    item_id: str,
-    item_update: MenuItemUpdateDTO,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  item_id: str,
+
+  item_update: MenuItemUpdateDTO,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
-    """Update menu item information"""
-    return await items_endpoint.update_item(item_id, item_update, current_user)
+
+  """Update menu item information"""
+
+  return await items_endpoint.update_item(item_id, item_update, current_user)
+
+
+
 
 
 @router.delete("/items/{item_id}", 
-               response_model=ApiResponseDTO,
-               summary="Delete menu item",
-               description="Delete menu item permanently from database")
+
+        response_model=ApiResponseDTO,
+
+        summary="Delete menu item",
+
+        description="Remove menu item (soft delete)")
+
 async def delete_menu_item(
-    item_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  item_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Delete menu item permanently from database"""
     try:
@@ -1944,13 +2152,21 @@ async def upload_item_image(
 
 
 @router.post("/items/{item_id}/images", 
-             response_model=ApiResponseDTO,
-             summary="Upload item images",
-             description="Upload images for menu item")
+
+       response_model=ApiResponseDTO,
+
+       summary="Upload item images",
+
+       description="Upload images for menu item")
+
 async def upload_item_images(
-    item_id: str,
-    files: List[UploadFile] = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  item_id: str,
+
+  files: List[UploadFile] = File(...),
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Upload menu item images with workspace/venue folder structure"""
     try:
@@ -2912,7 +3128,9 @@ async def upload_item_image(
 
 
 # =============================================================================
+
 # PUBLIC ENDPOINTS (No Authentication Required)
+
 # =============================================================================
 
 @router.get("/public/validate-qr-access", 
@@ -4090,15 +4308,65 @@ async def upload_item_image(
 
 
 @router.get("/public/venues/{venue_id}/items", 
-            response_model=List[MenuItemResponseDTO],
-            summary="Get venue menu items (public)",
-            description="Get all available menu items for a specific venue (public endpoint)")
+
+      response_model=List[MenuItemResponseDTO],
+
+      summary="Get venue menu items (public)",
+
+      description="Get all available menu items for a specific venue (public endpoint)")
+
 async def get_public_venue_menu_items(
-    venue_id: str,
-    category_id: Optional[str] = None,
-    table_id: Optional[str] = Query(None, description="Table ID for validation")
+
+  venue_id: str,
+
+  category_id: Optional[str] = None
+
 ):
-    """Get all available menu items for a venue (public endpoint)"""
+
+  """Get all available menu items for a venue (public endpoint)"""
+
+  try:
+
+    logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}")
+
+     
+
+    repo = get_repository_manager().get_repository('menu_item')
+
+     
+
+    if category_id and category_id != "None":
+
+      # Get items by category
+
+      logger.debug(f"Getting items by category: {category_id}")
+
+      items_data = await repo.get_by_category(venue_id, category_id)
+
+    else:
+
+      # Get all items for venue
+
+      logger.debug(f"Getting all items for venue: {venue_id}")
+
+      items_data = await repo.get_by_venue(venue_id)
+
+     
+
+    logger.debug(f"Retrieved {len(items_data)} raw items from database")
+
+     
+
+    # Filter only available items for public access
+
+    available_items = [item for item in items_data if item.get('is_available', False)]
+
+    logger.debug(f"Filtered to {len(available_items)} available items")
+
+     
+
+    # Process items to ensure all required fields are present
+
     try:
         logger.info(f"Getting public menu items for venue: {venue_id}, category: {category_id}, table: {table_id}")
         
@@ -4677,42 +4945,81 @@ async def upload_item_image(
 
 
 # =============================================================================
+
 # SEARCH AND FILTER ENDPOINTS
+
 # =============================================================================
 
+
+
 @router.get("/venues/{venue_id}/categories", 
-            response_model=List[MenuCategoryResponseDTO],
-            summary="Get venue categories",
-            description="Get all categories for a specific venue")
+
+      response_model=List[MenuCategoryResponseDTO],
+
+      summary="Get venue categories",
+
+      description="Get all categories for a specific venue")
+
 async def get_venue_categories(
-    venue_id: str,
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  venue_id: str,
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get all categories for a venue"""
-    try:
-        # Validate venue access
-        await categories_endpoint._validate_venue_access(venue_id, current_user)
-        
-        repo = get_repository_manager().get_repository('menu_category')
-        categories_data = await repo.get_by_venue(venue_id)
-        
-        # Filter active categories for non-admin users
-        if current_user.get('role') != 'admin':
-            categories_data = [cat for cat in categories_data if cat.get('is_active', False)]
-        
-        categories = [MenuCategoryResponseDTO(**cat) for cat in categories_data]
-        
-        logger.info(f"Retrieved {len(categories)} categories for venue: {venue_id}")
-        return categories
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting venue categories: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get categories"
-        )
+
+  """Get all categories for a venue"""
+
+  try:
+
+    # Validate venue access
+
+    await categories_endpoint._validate_venue_access(venue_id, current_user)
+
+     
+
+    repo = get_repository_manager().get_repository('menu_category')
+
+    categories_data = await repo.get_by_venue(venue_id)
+
+     
+
+    # Filter active categories for non-admin users
+
+    if current_user.get('role') != 'admin':
+
+      categories_data = [cat for cat in categories_data if cat.get('is_active', False)]
+
+     
+
+    categories = [MenuCategoryResponseDTO(**cat) for cat in categories_data]
+
+     
+
+    logger.info(f"Retrieved {len(categories)} categories for venue: {venue_id}")
+
+    return categories
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting venue categories: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get categories"
+
+    )
+
+
+
 
 
 @router.post("/items/{item_id}/image", 
@@ -4812,46 +5119,89 @@ async def upload_item_image(
 
 
 @router.get("/venues/{venue_id}/items", 
-            response_model=List[MenuItemResponseDTO],
-            summary="Get venue menu items",
-            description="Get all menu items for a specific venue")
+
+      response_model=List[MenuItemResponseDTO],
+
+      summary="Get venue menu items",
+
+      description="Get all menu items for a specific venue")
+
 async def get_venue_menu_items(
-    venue_id: str,
-    category_id: Optional[str] = Query(None, description="Filter by category"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  venue_id: str,
+
+  category_id: Optional[str] = Query(None, description="Filter by category"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Get all menu items for a venue"""
-    try:
-        if category_id:
-            # Get items by category
-            items = await items_endpoint.get_items_by_category(venue_id, category_id, current_user)
-        else:
-            # Validate venue access
-            await items_endpoint._validate_venue_access(venue_id, current_user)
-            
-            repo = get_repository_manager().get_repository('menu_item')
-            items_data = await repo.get_by_venue(venue_id)
-            
-            # Filter available items for non-admin users
-            if current_user.get('role') != 'admin':
-                items_data = [item for item in items_data if item.get('is_available', False)]
-            
-            # Process items to ensure all required fields are present
-            processed_items = process_menu_items_for_response(items_data)
-            
-            items = [MenuItemResponseDTO(**item) for item in processed_items]
-        
-        logger.info(f"Retrieved {len(items)} menu items for venue: {venue_id}")
-        return items
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting venue menu items: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to get menu items"
-        )
+
+  """Get all menu items for a venue"""
+
+  try:
+
+    if category_id:
+
+      # Get items by category
+
+      items = await items_endpoint.get_items_by_category(venue_id, category_id, current_user)
+
+    else:
+
+      # Validate venue access
+
+      await items_endpoint._validate_venue_access(venue_id, current_user)
+
+       
+
+      repo = get_repository_manager().get_repository('menu_item')
+
+      items_data = await repo.get_by_venue(venue_id)
+
+       
+
+      # Filter available items for non-admin users
+
+      if current_user.get('role') != 'admin':
+
+        items_data = [item for item in items_data if item.get('is_available', False)]
+
+       
+
+      # Process items to ensure all required fields are present
+
+      processed_items = process_menu_items_for_response(items_data)
+
+       
+
+      items = [MenuItemResponseDTO(**item) for item in processed_items]
+
+     
+
+    logger.info(f"Retrieved {len(items)} menu items for venue: {venue_id}")
+
+    return items
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error getting venue menu items: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to get menu items"
+
+    )
+
+
+
 
 
 @router.post("/items/{item_id}/image", 
@@ -4951,29 +5301,55 @@ async def upload_item_image(
 
 
 @router.get("/venues/{venue_id}/search", 
-            response_model=List[MenuItemResponseDTO],
-            summary="Search menu items",
-            description="Search menu items within a venue")
+
+      response_model=List[MenuItemResponseDTO],
+
+      summary="Search menu items",
+
+      description="Search menu items within a venue")
+
 async def search_venue_menu_items(
-    venue_id: str,
-    q: str = Query(..., min_length=2, description="Search query"),
-    current_user: Dict[str, Any] = Depends(get_current_user)
+
+  venue_id: str,
+
+  q: str = Query(..., min_length=2, description="Search query"),
+
+  current_user: Dict[str, Any] = Depends(get_current_user)
+
 ):
-    """Search menu items within a venue"""
-    try:
-        items = await items_endpoint.search_menu_items(venue_id, q, current_user)
-        
-        logger.info(f"Menu search performed in venue {venue_id}: '{q}' - {len(items)} results")
-        return items
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error searching menu items: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Search failed"
-        )
+
+  """Search menu items within a venue"""
+
+  try:
+
+    items = await items_endpoint.search_menu_items(venue_id, q, current_user)
+
+     
+
+    logger.info(f"Menu search performed in venue {venue_id}: '{q}' - {len(items)} results")
+
+    return items
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error searching menu items: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Search failed"
+
+    )
+
+
+
 
 
 @router.post("/items/{item_id}/image", 
@@ -5073,17 +5449,29 @@ async def upload_item_image(
 
 
 # =============================================================================
+
 # BULK OPERATIONS ENDPOINTS
+
 # =============================================================================
 
+
+
 @router.post("/items/bulk-update-availability", 
-             response_model=ApiResponseDTO,
-             summary="Bulk update item availability",
-             description="Update availability for multiple menu items")
+
+       response_model=ApiResponseDTO,
+
+       summary="Bulk update item availability",
+
+       description="Update availability for multiple menu items")
+
 async def bulk_update_item_availability(
-    item_ids: List[str],
-    is_available: bool,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  item_ids: List[str],
+
+  is_available: bool,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Bulk update menu item availability"""
     try:
@@ -5307,9 +5695,57 @@ async def upload_item_image(
     except Exception as e:
         logger.error(f"Error bulk updating item availability: {e}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update items"
+
+          status_code=status.HTTP_404_NOT_FOUND,
+
+          detail=f"Menu item {item_id} not found"
+
         )
+
+       
+
+      await items_endpoint._validate_access_permissions(item, current_user)
+
+     
+
+    # Bulk update
+
+    updates = [(item_id, {"is_available": is_available}) for item_id in item_ids]
+
+    await repo.update_batch(updates)
+
+     
+
+    logger.info(f"Bulk updated availability for {len(item_ids)} items")
+
+    return ApiResponseDTO(
+
+      success=True,
+
+      message=f"Updated availability for {len(item_ids)} items"
+
+    )
+
+     
+
+  except HTTPException:
+
+    raise
+
+  except Exception as e:
+
+    logger.error(f"Error bulk updating item availability: {e}")
+
+    raise HTTPException(
+
+      status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+
+      detail="Failed to update items"
+
+    )
+
+
+
 
 
 @router.post("/items/{item_id}/image", 
@@ -5409,13 +5845,21 @@ async def upload_item_image(
 
 
 @router.post("/categories/{category_id}/items/toggle-availability", 
-             response_model=ApiResponseDTO,
-             summary="Toggle category items availability",
-             description="Toggle availability for all items in a category")
+
+       response_model=ApiResponseDTO,
+
+       summary="Toggle category items availability",
+
+       description="Toggle availability for all items in a category")
+
 async def toggle_category_items_availability(
-    category_id: str,
-    is_available: bool,
-    current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
+  category_id: str,
+
+  is_available: bool,
+
+  current_user: Dict[str, Any] = Depends(get_current_admin_user)
+
 ):
     """Toggle availability for all items in a category"""
     try:
