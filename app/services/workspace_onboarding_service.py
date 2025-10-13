@@ -4,9 +4,9 @@ Handles complete workspace setup including venues, users, and initial configurat
 """
 from typing import Dict, Any
 from datetime import datetime
-import uuid
 
 from app.core.logging_config import get_logger
+from app.utils.id_generator import generate_workspace_id, generate_venue_id, generate_user_id
 from fastapi import HTTPException, status
 
 logger = get_logger(__name__)
@@ -27,10 +27,10 @@ class WorkspaceOnboardingService:
             venue_repo = get_venue_repo()
             user_repo = get_user_repo()
             
-            # Generate IDs
-            workspace_id = str(uuid.uuid4())
-            venue_id = str(uuid.uuid4())
-            user_id = str(uuid.uuid4())
+            # Generate Firestore-style IDs
+            workspace_id = generate_workspace_id()
+            venue_id = generate_venue_id()
+            user_id = generate_user_id()
             
             current_time = datetime.utcnow()
             

@@ -254,19 +254,18 @@ tables_endpoint = TablesEndpoint()
 # TABLE MANAGEMENT ENDPOINTS
 # =============================================================================
 
+# DINO GET
 @router.get("", 
-            response_model=PaginatedResponseDTO,
+            response_model=List[Dict[str, Any]],
             summary="Get tables",
-            description="Get paginated list of tables")
+            description="Get list of tables")
 async def get_tables(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(10, ge=1, le=100, description="Items per page"),
     venue_id: Optional[str] = Query(None, description="Filter by venue ID"),
     table_status: Optional[TableStatus] = Query(None, description="Filter by table status"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
-    """Get tables with pagination and filtering"""
+    """Get tables with filtering"""
     filters = {}
     if venue_id:
         filters['venue_id'] = venue_id
@@ -276,13 +275,19 @@ async def get_tables(
         filters['is_active'] = is_active
     
     try:
-        result = await tables_endpoint.get_items(
-            page=page,
-            page_size=page_size,
-            filters=filters,
-            current_user=current_user
-        )
-        return result
+        # Get all tables without pagination
+        repo = get_table_repo()
+        
+        if filters:
+            # Build query filters
+            query_filters = []
+            for field, value in filters.items():
+                query_filters.append((field, '==', value))
+            tables_data = await repo.query(query_filters)
+        else:
+            tables_data = await repo.get_all()
+        
+        return tables_data
     except Exception as e:
         logger.error(f"Error getting tables list: {e}")
         # If it's a validation error, try to fix the data
@@ -311,11 +316,11 @@ async def get_tables(
                 
                 if fixes_applied > 0:
                     logger.info(f"Applied {fixes_applied} table status fixes, retrying request...")
-                    # Retry the request
-                    return await tables_endpoint.get_items(
-                        page=page,
-                        page_size=page_size,
-                        filters=filters,
+                    # Retry the request recursively
+                    return await get_tables(
+                        venue_id=venue_id,
+                        table_status=table_status,
+                        is_active=is_active,
                         current_user=current_user
                     )
                 
@@ -622,7 +627,7 @@ async def verify_qr_code(
                 "id": table.id,
                 "table_number": table.table_number,
                 "capacity": table.capacity,
-                "location": table.location,
+                "area_id": table.area_id,
                 "status": table.table_status
             },
             "venue": {
@@ -682,7 +687,7 @@ async def get_table_public(
                 "id": table_data["id"],
                 "table_number": table_data["table_number"],
                 "capacity": table_data.get("capacity", 4),
-                "location": table_data.get("location"),
+                "area_id": table_data.get("area_id"),
                 "status": table_data.get("table_status", "available"),
                 "qr_code": table_data.get("qr_code")
             },
@@ -814,7 +819,7 @@ async def bulk_create_tables(
     start_number: int = Query(..., ge=1, description="Starting table number"),
     count: int = Query(..., ge=1, le=50, description="Number of tables to create"),
     capacity: int = Query(4, ge=1, le=20, description="Default capacity for all tables"),
-    location: Optional[str] = Query(None, description="Default location for all tables"),
+    area_id: Optional[str] = Query(None, description="Default area ID for all tables"),
     current_user: Dict[str, Any] = Depends(get_current_admin_user)
 ):
     """Bulk create tables"""
@@ -842,7 +847,7 @@ async def bulk_create_tables(
                 "venue_id": venue_id,
                 "table_number": table_number,
                 "capacity": capacity,
-                "location": location,
+                "area_id": area_id,
                 "qr_code": tables_endpoint._generate_qr_code(venue_id, table_number),
                 "table_status": TableStatus.AVAILABLE.value,
                 "is_active": True

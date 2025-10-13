@@ -2,7 +2,6 @@
 Helper utility functions
 """
 import re
-import uuid
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 import hashlib
@@ -11,8 +10,9 @@ import string
 
 
 def generate_unique_id() -> str:
-    """Generate a unique ID"""
-    return str(uuid.uuid4())
+    """Generate a unique ID using Firestore format"""
+    from app.utils.id_generator import generate_firestore_id
+    return generate_firestore_id()
 
 
 def generate_short_id(length: int = 8) -> str:

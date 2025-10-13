@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+# DINO GET
 @router.get("/venues/{venue_id}/areas", 
             response_model=List[TableArea],
             summary="Get venue areas",
@@ -55,15 +56,10 @@ async def get_venue_areas(
         # Get areas from database
         areas_data = await area_repo.get_by_venue_id(venue_id)
         
-        # Convert to TableArea objects
-        areas = []
-        for area_data in areas_data:
-            # Map is_active to active for API compatibility
-            area_data['active'] = area_data.get('is_active', True)
-            areas.append(TableArea(**area_data))
         
-        logger.info(f"Retrieved {len(areas)} areas for venue: {venue_id}")
-        return areas
+        
+        logger.info(f"Retrieved {len(areas_data)} areas for venue: {venue_id}")
+        return areas_data
         
     except HTTPException:
         raise
